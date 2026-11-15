@@ -260,8 +260,9 @@ export function ApplicationKitPanel({
                         </div>
                       ) : (
                         <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
-                          The posting published no email address. Moey will not invent one from a domain — open the
-                          original posting to find the right contact, or use the phone number if there is one.
+                          {kit.audience === 'business'
+                            ? 'The record published no email address. Moey will not invent one from a domain, and the site on file may be the very thing that is broken — call the number if there is one, or open the source record for another route.'
+                            : 'The posting published no email address. Moey will not invent one from a domain — open the original posting to find the right contact, or use the phone number if there is one.'}
                         </p>
                       )}
 
@@ -290,16 +291,17 @@ export function ApplicationKitPanel({
                         {/^https?:\/\//i.test(url) && (
                           <a href={url} target="_blank" rel="noreferrer noopener">
                             <Button size="sm" variant="ghost">
-                              Original posting <ExternalLink className="size-3" />
+                              {kit.audience === 'business' ? 'Source record' : 'Original posting'}{' '}
+                              <ExternalLink className="size-3" />
                             </Button>
                           </a>
                         )}
                       </div>
 
                       <p className="mt-2.5 text-[11px] leading-relaxed text-faint">
-                        This opens your own mail client with the draft filled in. Moey does not send anything, and a mail
-                        link cannot attach files — download the `.md` from the CV tab and attach it, or paste the letter
-                        into the body.
+                        {kit.audience === 'business'
+                          ? 'This opens your own mail client with the note filled in. Moey does not send anything. A business has not asked to be contacted, so read it once more before you send, and do not follow up more than once.'
+                          : 'This opens your own mail client with the draft filled in. Moey does not send anything, and a mail link cannot attach files — download the `.md` from the CV tab and attach it, or paste the letter into the body.'}
                       </p>
                     </div>
                   </>

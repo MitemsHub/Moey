@@ -154,6 +154,8 @@ export interface ApplicationKit {
   /** Added with the outreach feature; absent on kits built before it. */
   email?: { subject: string; body: string }
   contact?: { emails: string[]; phones: string[] }
+  /** Which book this draft was written for; absent on older kits (treat as individual). */
+  audience?: Pipeline
   model: string
   generatedAt: number
   repoCount: number

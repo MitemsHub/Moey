@@ -34,6 +34,8 @@ export interface Kit {
   email: { subject: string; body: string }
   /** Addresses found in the posting text. Never guessed from a domain. */
   contact: { emails: string[]; phones: string[] }
+  /** Which book this draft is for: a job application or a cold business pitch. */
+  audience: 'individual' | 'business'
   model: string
   generatedAt: number
   repoCount: number
@@ -143,20 +145,47 @@ async function loadKitProfile(db: D1Database, owner: string, kind: string): Prom
   }
 }
 
-const SYSTEM = [
-  'You write application material for one specific posting, using only the facts supplied in the user message.',
+const SYSTEM_HEAD = [
+  'You write outreach material for one specific record, using only the facts supplied in the user message.',
   'Hard rules:',
   '1. Never invent an employer, role title, date, degree, certification, client name, metric or award.',
-  '2. If the posting asks for something the supplied facts do not evidence, do not claim it. Put it in "gaps".',
+  '2. If the record asks for something the supplied facts do not evidence, do not claim it. Put it in "gaps".',
   '3. Every bullet must trace to a supplied fact: a stated skill, a stated service, a line of stated experience, or a named repository.',
   '4. No hype: never use passionate, leverage, seamless, cutting-edge, synergy, rockstar, ninja, or emoji.',
-  '5. Cover letter: at most 220 words, addressed to the organisation by name, one concrete opening sentence tied to their problem, then evidence, then a short close. No invented enthusiasm or familiarity with their internal work.',
-  '6. If the supplied experience is thin, write a shorter CV rather than a padded one. Omit a section that has no evidence.',
-  '7. Plain direct prose, first person. Use the spelling the posting uses.',
-  '8. Also write the email that would carry this application: a subject line naming the role, and a body of at most 120 words that says the CV and cover letter are attached, names one concrete thing from the posting, and closes. No invented prior contact, no claim that anyone already replied.',
-  'Reply with JSON only, exactly these keys:',
-  '{"headline":string,"summary":string,"skills":string[],"experience":[{"role":string,"org":string,"period":string|null,"bullets":string[]}],"projects":[{"name":string,"url":string|null,"why":string}],"coverLetter":string,"emailSubject":string,"emailBody":string,"evidence":[{"claim":string,"source":string}],"gaps":string[]}',
-].join('\n')
+  '5. If the supplied experience is thin, write a shorter CV rather than a padded one. Omit a section that has no evidence.',
+  '6. Plain direct prose, first person. Use the spelling the record uses.',
+]
+
+const SYSTEM_JSON_KEYS =
+  'Reply with JSON only, exactly these keys:' +
+  '\n' +
+  '{"headline":string,"summary":string,"skills":string[],"experience":[{"role":string,"org":string,"period":string|null,"bullets":string[]}],"projects":[{"name":string,"url":string|null,"why":string}],"coverLetter":string,"emailSubject":string,"emailBody":string,"evidence":[{"claim":string,"source":string}],"gaps":string[]}'
+
+/**
+ * A job posting and a business prospect are different letters. The candidate writes
+ * to someone who asked for applicants; the studio writes to a business that has not
+ * asked for anything, about a problem observed in public data. Asking a model to
+ * treat both as applications produced a cold pitch that attached a CV, which reads
+ * as a mail merge.
+ */
+function systemFor(pipeline: 'individual' | 'business'): string {
+  if (pipeline === 'business') {
+    return [
+      ...SYSTEM_HEAD,
+      '7. This record is a business observed in public data, not a job advert, and the owner has not asked to be contacted. Be brief and specific about what you observed.',
+      '8. Cover letter: at most 180 words, addressed to the business by name, naming the observed problem (for example a recorded website that no longer resolves) and what you would offer to fix. Do not thank them for an opportunity, do not pretend to know their plans, do not quote a price.',
+      '9. Write the email too: subject naming the business and the observed issue; body of at most 90 words, plain, no attachments mentioned, no CV language, one line of relevant experience, and a way to reply. Never claim they contacted you or that you have met.',
+      '10. Describe the problem literally, in the words the record uses: a domain that does not resolve, or a site returning 404. Never dress it up as an accessibility, design or SEO finding.',
+      SYSTEM_JSON_KEYS,
+    ].join('\n')
+  }
+  return [
+    ...SYSTEM_HEAD,
+    '7. Cover letter: at most 220 words, addressed to the organisation by name, one concrete opening sentence tied to their problem, then evidence, then a short close. No invented enthusiasm or familiarity with their internal work.',
+    '8. Also write the email that would carry this application: a subject line naming the role, and a body of at most 120 words that says the CV and cover letter are attached, names one concrete thing from the posting, and closes. No invented prior contact, no claim that anyone already replied.',
+    SYSTEM_JSON_KEYS,
+  ].join('\n')
+}
 
 function strings(value: unknown, limit: number): string[] {
   return Array.isArray(value) ? value.map(String).map((s) => s.trim()).filter(Boolean).slice(0, limit) : []
@@ -211,7 +240,12 @@ function extractContact(body: string): { emails: string[]; phones: string[] } {
  * sound like experience the operator did not claim. The notes say so, so the UI
  * cannot imply otherwise.
  */
-function composeLocal(profile: KitProfile, repos: RepoFact[], opportunity: { title: string; org: string | null }): Draft {
+function composeLocal(
+  profile: KitProfile,
+  repos: RepoFact[],
+  opportunity: { title: string; org: string | null },
+  pipeline: 'individual' | 'business' = 'individual',
+): Draft {
   const lines = (profile.experience ?? '')
     .split('\n')
     .map((line) => line.trim())
@@ -266,23 +300,45 @@ function composeLocal(profile: KitProfile, repos: RepoFact[], opportunity: { tit
       ...projects.map((project) => ({ claim: project.name, source: `github.com/${profile.github}/${project.name}` })),
     ].slice(0, 14),
     gaps: [],
-    email: {
-      subject: `Application: ${opportunity.title}`.slice(0, 160),
-      body: [
-        `Hello${opportunity.org ? ` ${opportunity.org}` : ''},`,
-        '',
-        `I am applying for ${opportunity.title}. My CV and cover letter are attached.`,
-        profile.summary ? `\n${profile.summary.trim()}` : '',
-        profile.skills.length ? `\nSkills: ${profile.skills.slice(0, 12).join(', ')}.` : '',
-        '',
-        'This draft was assembled from my profile without a writing model. Please read it before sending.',
-        '',
-        profile.name,
-      ]
-        .filter((line) => line !== '')
-        .join('\n')
-        .slice(0, 4000),
-    },
+    email:
+      pipeline === 'business'
+        ? {
+            // No CV and no application language: this is a cold, polite note about a
+            // problem visible in public data, and the operator was never invited.
+            subject: `About the ${opportunity.org ?? opportunity.title} website`.slice(0, 160),
+            body: [
+              `Hello${opportunity.org ? ` ${opportunity.org}` : ''},`,
+              '',
+              `I noticed the website recorded for you in public data is no longer reachable: ${opportunity.title}.`,
+              profile.summary ? `\n${profile.summary.trim()}` : '',
+              profile.skills.length ? `\nI work with ${profile.skills.slice(0, 8).join(', ')}.` : '',
+              '\nIf it would help, reply and I will send a short plan for getting the site back up.',
+              '',
+              'This draft was assembled from my profile without a writing model. Please read it before sending.',
+              '',
+              profile.name,
+            ]
+              .filter((line) => line !== '')
+              .join('\n')
+              .slice(0, 4000),
+          }
+        : {
+            subject: `Application: ${opportunity.title}`.slice(0, 160),
+            body: [
+              `Hello${opportunity.org ? ` ${opportunity.org}` : ''},`,
+              '',
+              `I am applying for ${opportunity.title}. My CV and cover letter are attached.`,
+              profile.summary ? `\n${profile.summary.trim()}` : '',
+              profile.skills.length ? `\nSkills: ${profile.skills.slice(0, 12).join(', ')}.` : '',
+              '',
+              'This draft was assembled from my profile without a writing model. Please read it before sending.',
+              '',
+              profile.name,
+            ]
+              .filter((line) => line !== '')
+              .join('\n')
+              .slice(0, 4000),
+          },
   }
 }
 
@@ -398,7 +454,7 @@ kit.post('/:id/kit', async (c) => {
   const notes: string[] = []
 
   if (!provider) {
-    draft = composeLocal(profile, repos, row)
+    draft = composeLocal(profile, repos, row, pipeline)
     model = 'rules-composer'
     notes.push(
       'No model provider is configured, so this kit was assembled from your profile verbatim. No sentence here was written for you.',
@@ -406,7 +462,7 @@ kit.post('/:id/kit', async (c) => {
   } else {
     try {
       const { data, result } = await chatJson<Record<string, unknown>>(c.env, {
-        system: SYSTEM,
+        system: systemFor(pipeline),
         user: JSON.stringify({
           candidate: {
             name: profile.name,
@@ -484,7 +540,7 @@ kit.post('/:id/kit', async (c) => {
       const reason = error instanceof Error ? error.message : 'unknown'
       // A dead provider must not cost the operator their draft: fall back to the
       // assembled version and say plainly what happened.
-      draft = composeLocal(profile, repos, row)
+      draft = composeLocal(profile, repos, row, pipeline)
       model = 'rules-composer'
       notes.push(
         `${provider.label} did not return a usable draft (${reason}), so this kit was assembled from your profile instead.`,
@@ -505,10 +561,12 @@ kit.post('/:id/kit', async (c) => {
   notes.push(
     contact.emails.length
       ? `${contact.emails.length} address${contact.emails.length === 1 ? '' : 'es'} found in the posting text. Moey opens your mail app; it never sends.`
-      : 'No email address appears in the posting text, so there is nothing to send to automatically. Use the original link or the recorded phone number.',
+      : contact.phones.length
+        ? `No email address appears in the ${pipeline === 'business' ? 'record' : 'posting'} text. The recorded number is the way in; tapping it opens your dialler.`
+        : 'No email address or phone number appears in the source text, so there is nothing to contact. Open the source record and look for a route yourself.',
   )
 
-  const content: Omit<Kit, 'generatedAt' | 'repoCount'> = { ...draft, contact, model, notes }
+  const content: Omit<Kit, 'generatedAt' | 'repoCount'> = { ...draft, contact, audience: pipeline, model, notes }
   const stamp = now()
   await db.batch([
     db.prepare(`DELETE FROM documents WHERE owner_sub = ? AND opportunity_id = ? AND kind = 'kit'`).bind(owner, oppId),
