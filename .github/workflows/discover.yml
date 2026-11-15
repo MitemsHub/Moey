@@ -1,0 +1,28 @@
+name: Discovery scan
+
+# The 6-hourly scan lives here, not in the Worker, because Freebuff Sites does not
+# expose cron or queue bindings. The worker still owns dedupe and scoring; this job
+# only fetches and posts normalised items.
+on:
+  schedule:
+    - cron: '15 */6 * * *'
+  workflow_dispatch:
+
+concurrency:
+  group: discovery
+  cancel-in-progress: false
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Run enabled sources
+        env:
+          APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: node scripts/discover.mjs

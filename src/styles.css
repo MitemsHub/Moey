@@ -1,0 +1,133 @@
+@import 'tailwindcss';
+@import '@fontsource-variable/inter';
+@import '@fontsource-variable/newsreader';
+@import '@fontsource-variable/jetbrains-mono';
+
+/* Design tokens — "evidence ledger".
+   The product's claim is provenance, so the surface is warm paper, the type is
+   editorial, and colour is reserved for status. Brick is the only interactive
+   accent; pine means verified, ochre means emerging. Nothing decorative uses hue. */
+@theme {
+  --font-sans: 'Inter Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-display: 'Newsreader Variable', 'Iowan Old Style', Georgia, serif;
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+
+  /* Warm neutral ramp — never pure white or pure grey. */
+  --color-bg: #eeeadf;
+  --color-surface: #f8f6f1;
+  --color-surface-2: #f1eee5;
+  --color-raised: #e6e1d4;
+  --color-line: #ddd7c8;
+  --color-line-strong: #c9c2b1;
+  --color-fg: #16150f;
+  --color-muted: #6b6455;
+  --color-faint: #948d7c;
+
+  /* Status channels. */
+  --color-accent: #8a3324;
+  --color-accent-soft: #f4e3dc;
+  --color-success: #1e4d3f;
+  --color-success-soft: #dfeae2;
+  --color-warning: #8a6410;
+  --color-warning-soft: #f6e9cd;
+  --color-danger: #a32b1c;
+  --color-danger-soft: #f7e2dc;
+  --color-info: #2f4a6b;
+  --color-info-soft: #e2e8ef;
+
+  --radius-control: 6px;
+  --radius-card: 10px;
+  --radius-dialog: 12px;
+  --radius-tile: 4px;
+
+  --shadow-card: 0 1px 0 rgb(22 21 15 / 0.03), 0 0 0 1px rgb(22 21 15 / 0.05);
+  --shadow-pop: 0 0 0 1px rgb(22 21 15 / 0.08), 0 14px 34px -16px rgb(22 21 15 / 0.32);
+  --shadow-dialog: 0 0 0 1px rgb(22 21 15 / 0.08), 0 32px 70px -24px rgb(22 21 15 / 0.38);
+}
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--color-line);
+  }
+  html {
+    background: var(--color-bg);
+    color-scheme: light;
+    overscroll-behavior: none;
+    height: 100%;
+    /* The app is a fixed shell with its own scroll regions. Horizontal motion
+       belongs to the table wrapper, never to the page. */
+    overflow-x: hidden;
+  }
+  body {
+    background: var(--color-bg);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    letter-spacing: -0.006em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    height: 100%;
+    overflow: hidden;
+  }
+  #root {
+    height: 100%;
+  }
+  h1,
+  h2,
+  .display {
+    font-family: var(--font-display);
+    font-optical-sizing: auto;
+    letter-spacing: -0.015em;
+  }
+  button,
+  input,
+  select,
+  textarea {
+    font: inherit;
+    letter-spacing: inherit;
+    color: inherit;
+  }
+  :focus-visible {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+    outline-offset: 1px;
+  }
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 20%, transparent);
+  }
+  input[type='search']::-webkit-search-cancel-button {
+    appearance: none;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@utility scrollbar-thin {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+@utility text-balance {
+  text-wrap: balance;
+}
+
+/* Every figure in this product is compared down a column, so numbers are always
+   tabular and mono. Proportional digits in a table are a reading tax. */
+@utility tnum {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+  letter-spacing: -0.02em;
+}
+
+@utility rule-grid {
+  background-image: linear-gradient(to right, var(--color-line) 1px, transparent 1px);
+  background-size: 48px 100%;
+}
