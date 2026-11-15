@@ -1,191 +1,240 @@
-# Mitemshub Opportunity Engine
+<div align="center">
 
-An opportunity intelligence product for two separate books of business — **individual work** and
-**Mitemshub engagements** — built around one rule: every row must be traceable to the sentence that produced it.
+# Moey
 
-It discovers demand from sources that permit it, scores it against a profile, and keeps a provenance chain and
-decision log for every record. From a row you can build a CV and cover letter grounded in that posting, your own
-stated history and your public GitHub repositories. Nothing is auto-submitted anywhere, and nothing is invented
-to fill a gap.
+**An opportunity engine with a memory and a conscience.**
+
+It finds work that is actually being advertised, scores it against a real profile, and writes the
+application from evidence it can point at. When a fact is missing, it says so instead of inventing one.
+
+![tests](https://img.shields.io/badge/tests-39%20passing-2f6f4f?style=flat-square)
+![stack](https://img.shields.io/badge/stack-TypeScript%20%C2%B7%20React%20%C2%B7%20Workers-1f6feb?style=flat-square)
+![data](https://img.shields.io/badge/data-local%20D1-24292f?style=flat-square)
+![sends](https://img.shields.io/badge/sends-nothing%20without%20you-8b3a3a?style=flat-square)
+
+</div>
+
+---
+
+Two books of business, one engine: **individual work** (jobs, freelance briefs) and **Mitemshub engagements**
+(prospects you approach yourself). They share the pipeline, the scoring vocabulary and the audit trail, and stay
+separate everywhere it matters — separate profiles, separate eligibility, separate drafts.
+
+The rule under all of it is old-fashioned and non-negotiable: every row can be traced back to the sentence that
+produced it. If the trail breaks, the row says so rather than dressing up a guess.
 
 ```
-discover ──▶ normalise ──▶ dedupe ──▶ score ──▶ decide ──▶ draft
-  18 sources    one shape     3 passes    rules+model   human      evidence-bound kit
-       │             │             │            │           │              │
-       └─────────────┴─────────────┴── provenance rail, every step stored ─┴──────────────┘
+   sources                one shape                trust                judgement              output
+┌───────────┐        ┌──────────────┐        ┌──────────────┐      ┌───────────────┐      ┌────────────────┐
+│ 18        │        │ normalise    │        │ 3-pass       │      │ rule score    │      │ CV · letter    │
+│ adapters  │──────▶ │ hash · url   │──────▶ │ dedupe       │────▶ │ + model pass  │────▶ │ email · gaps   │
+│ registry  │        │ canonical    │        │ provenance   │      │ you decide    │      │ evidence list  │
+└───────────┘        └──────────────┘        └──────────────┘      └───────────────┘      └────────────────┘
+      │                      │                      │                      │                       │
+      └──────────────────────┴──────────────────────┴──────────────────────┴───────────────────────┘
+                                  every step stored, per row, readable later
 ```
 
-## Run it
+## Quickstart
 
 ```sh
 npm install
-npm run dev        # http://localhost:5173 with a local D1 (Miniflare)
+npm run dev        # http://localhost:5173, local D1 via Miniflare
 npm run typecheck
 npm test
 npm run build      # dist/client + dist/opportunity-engine/index.js
 ```
 
-On localhost with no `FREEBUFF_CLIENT_ID`, the app signs you in as a local development user, so it works before
-auth is provisioned. A new workspace is seeded with **two empty profiles and the source registry** — and no
-opportunities, because inventing sample rows would violate the brief.
+On localhost with no `FREEBUFF_CLIENT_ID` you are signed in as a local development user, so the app runs before
+auth exists. A fresh workspace is seeded with two profiles and the source registry, and with **zero opportunities**.
+Sample rows would have meant inventing postings, which is the one thing this product cannot do.
 
-## What it does
+## What a row gives you
 
-- **Sources** — seven adapters (Greenhouse, Lever, Ashby, Jobicy, Hacker News, EU TED, SAM.gov) with per-source
-  enable, config and health. Refused platforms and why: `docs/SOURCES.md`.
-- **Ingestion** — one write path for adapters and the external runner: normalise → hash → three-pass dedupe →
-  rule score → optional model refinement → persist, with an activity row each time.
-- **Profiles** — separate skills/services and eligibility for each pipeline. Eligibility is deliberately blank; the
-  engine never assumes a fact about the operator.
-- **Application kits** — for any row, a CV and cover letter assembled from the posting, the operator's profile
-  (including a free-text experience field) and their public GitHub repositories. Every line carries its source;
-  requirements the operator cannot evidence become a **gaps** list instead of a claim in the letter. Nothing is
-  sent, and the model is never asked to invent an employer, date or metric.
-- **Leads** — only advertised opportunities can enter the board. Emerging signals stop at review.
-- **Memory** — filters, page, sort and scroll survive opening a row and coming back, and survive a full reload
-  (`localStorage` for the query, `sessionStorage` for the scroll position). The list is a place you return to, not
-  something that restarts.
-- **Provenance** — `source → fetched → normalised → qualified → decision`, shown per row and in full on the detail
-  view. A step that cannot be evidenced renders as missing rather than being omitted.
+| Stage | What happens | Why it is built that way |
+| --- | --- | --- |
+| **Discover** | 18 adapters — Greenhouse, Lever, Ashby, Jobicy, Remotive, RemoteOK, Himalayas, Working Nomads, Arbeitnow, We Work Remotely, Freelancer, Hacker News, Mastodon, EU TED, SAM.gov, OSM business listings, dead-site checks, DataAnnotation — each with its own enable switch, config and health state. | Only platforms that permit reading. What was refused and why is written down in [`docs/SOURCES.md`](docs/SOURCES.md). |
+| **Normalise** | Every payload becomes one opportunity shape: title, organisation, location, body, URL, dates. | Downstream code should not know which platform a row came from. |
+| **Dedupe** | Three passes: content hash, canonical URL, and fuzzy title/organisation matching. | The same job reaches you through a board, an aggregator and a company page. You should see it once. |
+| **Score** | Skill vocabulary and rules first, model second — and only for rows that cleared the rule threshold. | A scan of 500 rows must not mean 500 model calls. |
+| **Decide** | You accept, dismiss or snooze. The decision is logged with its timestamp. | Nothing leaves the board on its own. |
+| **Draft** | A CV, cover letter and outreach email assembled from the posting plus your own stated facts. | See below. This is the part people actually feel. |
 
-## Configuration
-
-Copy `.env.example` to `.env`. Both are local-only; `.env` is git-ignored. `npm run dev` syncs it into
-`.dev.vars` (which the local Worker actually reads), so there is one file to edit.
-
-| Variable | Needed for | Local | On Sites |
-| --- | --- | --- | --- |
-| `OPENAI_API_KEY` | Model qualifier | empty = rules-only | **Sites → Secrets** after the first deploy. Get a key at <https://freebuff.com/account/api>. |
-| `OPENAI_BASE_URL` | Model endpoint | defaults to the Freebuff API | optional, only to point elsewhere |
-| `OPENAI_MODEL` | Model name | `gpt-4o-mini` | optional |
-| `INGEST_SECRET` | External runner (`/api/ingest/*`) | any string | **Sites → Secrets**. Without it those routes return 503. |
-
-Deploy order matters: deploy once, then set the secrets, then redeploy is not required — secrets apply
-to the running Worker.
-
-Without `OPENAI_API_KEY` the engine still works: every score is tagged `rules`, the model gate is skipped,
-and the UI says so. With it, only rows whose rule score reached 35 are sent to the model, so a scan cannot
-spend per row.
+**Leads** deserve a note. Only advertised opportunities reach the board; emerging signals stop at a review queue
+until someone confirms there is a real posting behind them.
 
 ## Application kits
 
-The feature exists because the expensive part of applying is not finding the posting, it is writing something true
-for it. A kit is generated server-side, stored against the opportunity, and re-readable from the detail view.
+Writing something true about a specific posting is the expensive part of applying. A kit is generated server-side,
+stored against the opportunity, and re-readable from the detail view, so you are never re-rolling a draft you liked.
 
-- **Inputs**: the posting text, the profile (headline, summary, skills, services, experience), and up to 30 public
-  repositories from the GitHub username set on that profile — nothing private, nothing posted back.
-- **Guardrails**: the prompt forbids invented employers, titles, dates, degrees, certifications, client names and
-  metrics; every bullet must trace to a supplied fact. The response includes an `evidence` list mapping each claim
-  to where it came from, so an unearned line is visible before it reaches an application.
-- **Without a model key** the kit is *assembled*, not written: it composes the CV from the profile verbatim, uses
-  repository descriptions as project evidence, and says in the letter and the footer that no writing model was
-  used. A missing key degrades the output's polish, never its truthfulness.
-- **Stored** in `documents` as JSON with the model name, so a draft can always be traced to the model that wrote it.
+What goes in: the stored posting text, your profile (headline, summary, skills, services, free-text experience) and up
+to 30 recent public repositories from the GitHub username on that profile.
 
-### Sending it
+What the model is forbidden to do, in the prompt and again in the post-processing:
 
-The kit also writes the **email** that would carry the application (subject + body), and the **Send** tab turns it
-into action:
+- invent an employer, role title, date, degree, certification, client name or metric;
+- claim a requirement your inputs do not evidence — those become a **gaps** list instead of a line in the letter;
+- pad a thin history into a long one. A short CV is the correct answer when the facts are short.
 
-- Addresses and phone numbers are read from the posting text only. `careers@theirdomain` is never constructed — a
-  guessed address is a fabrication, so a posting with no address honestly reports that there is nothing to send to.
-- `mailto:` opens your own mail client with the draft filled in; `tel:` does the same for a recorded number.
-  **Moey never sends anything**, and a mail link cannot attach files — download the `.md` and attach it, or paste the
-  letter into the body.
-- If the draft contains a figure that appears nowhere in your inputs, it is listed under Gaps before you send.
+Every response carries an `evidence` list mapping each claim to where it came from, so an unearned line is visible
+before it reaches an employer. A separate check flags figures in the draft that appear nowhere in your inputs.
 
-A provider is picked automatically from whatever keys are configured — see *Free model providers* below. Nothing
-has to be paid for.
+**With no model key at all**, the kit still works: it *assembles* rather than writes, composing your profile
+verbatim, using repository descriptions as project evidence, and stating in the letter and footer that no writing
+model was used. Missing keys cost polish. They never cost truth.
 
-## Free model providers
+Kits are stored in `documents` as JSON alongside the model name, so any draft can be traced to what wrote it.
 
-The engine tries providers in this order and uses the first one that answers; if one rate-limits or times out it
-moves to the next, and if all of them fail the kit falls back to the assembled version above instead of erroring.
+### The email, and why sending stays manual
 
-| # | Provider | Needs | Free allowance | Set |
+Each kit also includes the message that would carry the application: a subject naming the role, and a body under 120
+words that points at one concrete thing in the posting.
+
+- **Contacts are read, never constructed.** Addresses and phone numbers come only from text the posting published.
+  `careers@theirdomain` is a guess wearing a suit, so a posting with no address reports that there is nothing to
+  send to. No-reply addresses are dropped; `hero@2x.png` is not mistaken for a person.
+- **The Send tab hands you the controls.** `mailto:` opens your own client with subject and body prefilled, `tel:`
+  does the same for a recorded number, and "Original posting" covers the rest.
+- **Nothing is sent, ever.** No SMTP, no API, no background job. A mail link also cannot attach files, so the panel
+  tells you to download the `.md` from the CV tab and attach it, or paste the letter in yourself.
+
+## Models, and how they stay free
+
+Providers are tried in order and the first one that answers wins. A rate limit, a timeout or an unparseable reply
+moves to the next; if all of them fail, the kit falls back to the assembled version instead of erroring.
+
+| # | Provider | Needs | Free allowance | Variable |
 | --- | --- | --- | --- | --- |
 | 1 | Freebuff API | key + credits | paid | `OPENAI_API_KEY` |
-| 2 | Groq | free key, no card | 30 req/min, 1,000 req/day | `GROQ_API_KEY` |
-| 3 | OpenRouter | free key | 20 req/min, 50 req/day on `:free` models | `OPENROUTER_API_KEY` |
-| 4 | Google AI Studio | free key | per-model daily quota | `GEMINI_API_KEY` (defaults to `gemini-3-flash-preview`) |
-| 5 | GitHub Models | token with Models access | free tier per model | `GITHUB_TOKEN` (see note) |
+| 2 | Groq | free key, no card | ~30 req/min, 1,000 req/day | `GROQ_API_KEY` |
+| 3 | OpenRouter | free key | ~20 req/min, 50 req/day on `:free` models | `OPENROUTER_API_KEY` |
+| 4 | Google AI Studio | free key | per-model daily quota | `GEMINI_API_KEY` |
+| 5 | GitHub Models | token with Models access | per-model free tier | `GITHUB_TOKEN` |
 | 6 | Cerebras | free key | ~1M tokens/day per model | `CEREBRAS_API_KEY` |
-| 7 | Pollinations | **none at all** | anonymous tier; mostly good for one draft at a time | `POLLINATIONS_API_KEY` only to raise the budget |
-| 8 | LLM7 | none at all | shared, heavily rate-limited | `LLM7_TOKEN` (optional) |
+| 7 | Pollinations | none | anonymous, one draft at a time is realistic | optional `POLLINATIONS_API_KEY` |
+| 8 | LLM7 | none | shared and heavily throttled | optional `LLM7_TOKEN` |
 
-`LLM_PROVIDER=groq` (or any id above) forces one. Every model name is overridable
-(`GROQ_MODEL`, `OPENROUTER_MODEL`, `GEMINI_MODEL`, …), because free catalogues rename models constantly.
+`LLM_PROVIDER=groq` forces a single provider. Every model name is overridable (`GROQ_MODEL`, `GEMINI_MODEL`, …)
+because free catalogues rename models without warning.
 
-Field notes from wiring these up, so the next person does not repeat them:
+Three things we learned the hard way, recorded so nobody repeats the afternoon:
 
-- **Google retires model ids per account.** `gemini-2.5-flash` returns 404 for keys created after its replacement
-  shipped, and the newest id (`gemini-3.8-flash`) returned 503 during testing where `gemini-3-flash-preview`
-  answered in 5–10 s. The default is the fast one, and a 404/429/5xx triggers one retry across the other current ids,
-  because free quotas are counted per model.
-- **GitHub Models needs a token with Models access.** A fine-grained token without that permission returns HTTP 200
-  with the literal body `OK` for every model name. The chain treats that as a failure and moves on rather than
-  pretending a draft was produced.
+- **Google retires model ids per account.** `gemini-2.5-flash` answers 404 for keys created after its replacement
+  shipped, and the newer `gemini-3.8-flash` returned 503 while `gemini-3-flash-preview` answered in 5–10 s. That
+  fast one is the default, and a 404, 429 or 5xx triggers one retry across the other current ids, because free
+  quotas are counted per model rather than per account.
+- **GitHub Models needs the token permission.** A fine-grained token without Models access returns HTTP 200 with the
+  literal body `OK`, for every model name. The chain treats that as a failure and moves on. Grant the token Models
+  read access (or use a classic token) and the provider starts working.
+- **Keyless is real but thin.** Pollinations produced a complete draft in about 12 s with `reasoning_effort: low`.
+  LLM7 answered once, then rejected its own anonymous token and timed out on a real draft, so it is tried last and
+  never assumed.
 
-Two honest notes. First, only the two keyless entries work with no setup at all, and they behave differently in
-practice: Pollinations answered a full draft in ~12s with `reasoning_effort: low`, while LLM7 answered once and then
-rejected the same anonymous token (`invalid_api_key`, `concurrent_request_limit_exceeded`) and timed out on a real
-draft. LLM7 is therefore tried last and never assumed. Second, a draft that takes ~20s on a free tier is normal;
-the panel shows a loading state, and if every provider fails the kit falls back to the assembled version instead of
-erroring. Second, this deliberately does **not** use `gpt4free`-style projects: those reverse-engineer other
-products' chat UIs, break their terms, get keys and IPs banned, and cannot run in a Worker anyway. The maintained
-lists that are legitimate — `cheahjs/free-llm-api-resources` (deleted by its author in late 2026),
-`nejib1/Free-LLM`, `OuterSpacee/free-ai-apis`, `tomasasz/litellm-free-models-proxy` — all point at the same
-handful of real free tiers, which is what the table above encodes.
+One deliberate omission: no `gpt4free`-style project. Those reverse-engineer other companies' chat interfaces, break
+their terms, get keys and IPs banned, and cannot run in a Worker. The legitimate maintained lists
+(`nejib1/Free-LLM`, `OuterSpacee/free-ai-apis`, `tomaszas/litellm-free-models-proxy`, and the now-deleted
+`cheahjs/free-llm-api-resources`) all point at the same handful of real tiers, which is what the table encodes.
 
-## Install it as an app (PWA)
+## Your GitHub token, and what it is and is not doing
 
-The app ships a web manifest, a service worker and 192/512/maskable icons, so it installs from the machine it runs
-on and opens in its own window.
+`GITHUB_TOKEN` does two separate jobs, and it is worth being precise because the two are easy to confuse.
 
-- `npm run build && npm run preview` — the built app is installable and works offline for the shell.
-- Chrome/Edge: address-bar install icon, or ⋮ → *Install Opportunity Engine*. Safari: *Share → Add to Dock*.
-- The service worker never caches `/api/*`: a cached opportunity would look live while being stale, which is exactly
-  the dishonesty this product exists to avoid. In development it is a pass-through so Vite's HMR is untouched.
+**1. It authenticates repository reads.** When a profile has a GitHub username, the kit fetches that account's recent
+public repositories as project evidence. Anonymous GitHub API calls are limited to 60 per hour, which a few rebuilds
+will exhaust; with the token the limit is 5,000 per hour and the request carries a `user-agent`. The token is sent
+only to `api.github.com`, never to a model provider and never to the browser.
 
-## Where things are
+**2. It unlocks GitHub Models as a fallback LLM**, if the token carries Models access. Without that permission the
+endpoint returns the literal string `OK`, which the chain correctly reads as a failure.
 
-| Path | What |
+What the token is **not** used for: it does not choose which repositories appear. That comes from the username field
+on your profile, so a CV only shows what you decided to show. Private repositories are filtered out even when the
+token could read them — a CV is not the place to expose a client's confidential project name.
+
+If a kit says *"No GitHub username is set on this profile"*, the token is irrelevant to that draft: set the username
+in Settings → Profile.
+
+## Configuration
+
+Copy `.env.example` to `.env`. Both stay local; `.env` is git-ignored. `npm run dev` syncs `.env` into `.dev.vars`,
+which is what the local Worker actually reads, so there is one file to edit. Every provider variable is forwarded —
+if a new key is added to the sync script, a test fails.
+
+| Variable | Used for | Local default | On Sites |
+| --- | --- | --- | --- |
+| `GITHUB_TOKEN` | Repository reads + GitHub Models | optional | **Sites → Secrets** |
+| `GEMINI_API_KEY` | Google AI Studio | optional | **Sites → Secrets** |
+| `OPENAI_API_KEY` | Freebuff API | empty = no paid provider | **Sites → Secrets**, see <https://freebuff.com/account/api> |
+| `GROQ_API_KEY`, `OPENROUTER_API_KEY`, `CEREBRAS_API_KEY` | Alternate free tiers | optional | **Sites → Secrets** |
+| `OPENAI_BASE_URL`, `OPENAI_MODEL` | Endpoint and model overrides | Freebuff defaults | optional |
+| `INGEST_SECRET` | External runner (`/api/ingest/*`) | any string | **Sites → Secrets**; without it those routes return 503 |
+
+Secrets apply to the running Worker, so the order is: deploy once, then set them. No redeploy needed.
+
+With no provider key at all the engine still runs: scores are tagged `rules`, the model gate is skipped, and the
+interface says so plainly.
+
+## Install it as an app
+
+A web manifest, a service worker and 192/512/maskable icons ship with the build, so the app installs and opens in
+its own window.
+
+```sh
+npm run build && npm run preview
+```
+
+Chrome and Edge offer an install icon in the address bar, or ⋮ → *Install Opportunity Engine*. Safari: *Share → Add
+to Dock*.
+
+The service worker never caches `/api/*`. A cached opportunity would look live while being stale, which is the exact
+dishonesty this product exists to avoid. In development it is a pass-through, so Vite's hot reload is untouched.
+
+## How it is put together
+
+| Path | What lives there |
 | --- | --- |
-| `src/worker/adapters.ts` | Adapter interface + the seven implementations |
-| `src/worker/ingest.ts` | The single write path (dedupe, score, persist) |
+| `src/worker/adapters.ts` | Adapter interface and all 18 implementations |
+| `src/worker/ingest.ts` | The single write path: dedupe, score, persist, log |
 | `src/worker/qualify.ts` | Skill vocabulary, rule scoring, optional model pass |
-| `src/worker/db.ts` | Schema (created on first request) and row mappers |
-| `src/worker/routes/*` | Hono endpoints |
+| `src/worker/model.ts` | Provider chain, per-provider quirks, JSON recovery |
 | `src/worker/routes/kit.ts` | GitHub sourcing, evidence-bound drafting, honest no-key fallback |
-| `src/app/components/ApplicationKit.tsx` | Kit panel, tabs, Markdown export |
-| `public/manifest.webmanifest`, `public/sw.js` | PWA install + offline shell |
-| `scripts/make-icons.mjs` | Deterministic PNG icons, no dependencies |
+| `src/worker/db.ts` | Schema (created on first request) and row mappers |
 | `src/app/` | React app; `components/Provenance.tsx` is the signature component |
-| `scripts/discover.mjs` | External runner used by the GitHub Actions cron |
+| `src/app/components/ApplicationKit.tsx` | Kit panel, five tabs, Markdown export |
+| `public/manifest.webmanifest`, `public/sw.js` | Installability and the offline shell |
+| `scripts/discover.mjs` | External runner used by the scheduled job |
 | `docs/` | Audit, architecture, component register, source legality |
-| `design/` | Brief, references, assets, Studio OS copy |
+| `design/` | Brief, references, assets, copy deck |
 
 ## Deploying to Freebuff Sites
 
-1. `sites_create`, then `sites_add_storage` with D1 named `DB`.
-2. `sites_enable_auth` (pass `http://localhost:5173` as the local origin).
-3. Set `INGEST_SECRET` (for the external runner) and, optionally, `OPENAI_API_KEY`.
+1. `sites_create`, then `sites_add_storage` with D1 bound as `DB`.
+2. `sites_enable_auth`, passing `http://localhost:5173` as the local origin.
+3. Set `INGEST_SECRET`, plus whichever provider keys you want.
 4. `npm run build`, then `sites_deploy` with `deploy.json`.
 
-Scheduling lives in `.github/workflows/discover.yml`, not in the Worker: Sites does not expose cron or queue
-bindings. Set the `APP_ORIGIN`, `INGEST_SECRET` secrets and the `SCAN_PLAN` variable in the repository.
+Scheduling lives in `.github/workflows/discover.yml` rather than the Worker, because Sites exposes no cron or queue
+bindings. Set `APP_ORIGIN` and `INGEST_SECRET` as repository secrets, and `SCAN_PLAN` as a repository variable.
 
-## Security notes
+## Boundaries
 
-Every `/api/*` route requires a signed-in user and scopes queries by `owner_sub`. Mutations must be same-origin.
-`/api/ingest` is the one non-session write path: it fails closed without `INGEST_SECRET`, compares the bearer token
-in constant time, caps the batch at 500 items, derives the owner from the source row (never from the caller) and
+Every `/api/*` route requires a signed-in user and scopes its queries by `owner_sub`. Mutations must be same-origin.
+`/api/ingest` is the single non-session write path: it fails closed without `INGEST_SECRET`, compares the bearer
+token in constant time, caps a batch at 500 items, derives the owner from the source row rather than the caller, and
 clamps every field. Personalised responses are `Cache-Control: private, no-store`.
 
-## Not in this milestone
+What this milestone deliberately does not do: proposal and tender documents, client communication, delivery
+coordination, billing, and the eight deferred agents described in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) §6.
+They are listed so nobody assumes they exist.
 
-Proposal and tender response documents, client communication, delivery coordination, billing, and the eight
-deferred agents listed in `docs/ARCHITECTURE.md` §6. Named here so they are not silently implied.
+One known limit. A kit writes from the posting text the adapter stored. When a source published only a title, the
+kit is short and the gaps list explains why. It does not crawl the original page to make a draft look fuller.
 
-One known limit of the kit: it writes from the posting text the adapter stored. If a source published only a
-title, the kit is short and the gaps list is honest about why — it does not fetch the original page.
+## More reading
+
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — data model, pipeline, deferred agents
+- [`docs/SOURCES.md`](docs/SOURCES.md) — every source, its terms, and the ones refused
+- [`docs/AUDIT.md`](docs/AUDIT.md) — what was checked, and what was not
+- [`docs/COMPONENTS.md`](docs/COMPONENTS.md) — component register and states
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) · [`docs/IDEAS.md`](docs/IDEAS.md) — next, and considered

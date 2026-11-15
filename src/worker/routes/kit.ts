@@ -49,12 +49,22 @@ interface RepoFact {
   pushedAt: string | null
 }
 
-async function githubRepos(login: string): Promise<RepoFact[]> {
+/**
+ * Public repositories for the username on the profile. When GITHUB_TOKEN is set it
+ * is sent only to lift the anonymous rate limit (60 requests/hour is easy to hit
+ * while drafting); private repositories are still excluded on purpose, because a
+ * CV should not expose a client's confidential project name.
+ */
+async function githubRepos(login: string, token?: string): Promise<RepoFact[]> {
   if (!/^[a-z\d](?:[a-z\d-]{0,38})$/i.test(login)) return []
   try {
     const response = await fetch(`https://api.github.com/users/${login}/repos?per_page=40&sort=pushed`, {
       signal: AbortSignal.timeout(12_000),
-      headers: { accept: 'application/vnd.github+json', 'user-agent': 'moey-opportunity-engine' },
+      headers: {
+        accept: 'application/vnd.github+json',
+        'user-agent': 'moey-opportunity-engine',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+      },
     })
     if (!response.ok) return []
     const rows = (await response.json()) as {
@@ -66,9 +76,10 @@ async function githubRepos(login: string): Promise<RepoFact[]> {
       pushed_at?: string | null
       fork?: boolean
       archived?: boolean
+      private?: boolean
     }[]
     return rows
-      .filter((row) => row.name && row.html_url && !row.fork && !row.archived)
+      .filter((row) => row.name && row.html_url && !row.fork && !row.archived && !row.private)
       .slice(0, 30)
       .map((row) => ({
         name: String(row.name),
@@ -379,7 +390,7 @@ kit.post('/:id/kit', async (c) => {
   const profile = await loadKitProfile(db, owner, pipeline)
   if (!profile) return privateJson(c, { error: `Fill the ${pipeline} profile first — a kit cannot be built from nothing.` }, 400)
 
-  const repos = profile.github ? await githubRepos(profile.github) : []
+  const repos = profile.github ? await githubRepos(profile.github, c.env.GITHUB_TOKEN) : []
   const provider = resolveModel(c.env)
 
   let draft: Draft
@@ -483,7 +494,7 @@ kit.post('/:id/kit', async (c) => {
 
   notes.push(
     repos.length
-      ? `${repos.length} public repositories were supplied from github.com/${profile.github}.`
+      ? `${repos.length} public repositories were supplied from github.com/${profile.github}${c.env.GITHUB_TOKEN ? ' (authenticated request, private repositories excluded)' : ''}.`
       : profile.github
         ? `No public repositories were returned for github.com/${profile.github}.`
         : 'No GitHub username is set on this profile, so no repositories were supplied.',
