@@ -1,4 +1,4 @@
-import { Copy, Download, FileSignature, RefreshCw } from 'lucide-react'
+import { Copy, Download, ExternalLink, FileSignature, Mail, Phone, RefreshCw, Send } from 'lucide-react'
 import { useState } from 'react'
 
 import { Button, Skeleton, useToast } from './ui'
@@ -23,6 +23,9 @@ function toMarkdown(kit: ApplicationKit, title: string, org: string | null): str
     }
   }
   lines.push('', `## Cover letter — ${org ?? title}`, '', kit.coverLetter)
+  if (kit.email) {
+    lines.push('', '## Email', '', `**Subject:** ${kit.email.subject}`, '', kit.email.body)
+  }
   if (kit.gaps.length) {
     lines.push('', '## Asked for, not evidenced', ...kit.gaps.map((gap) => `- ${gap}`))
   }
@@ -34,10 +37,20 @@ function toMarkdown(kit: ApplicationKit, title: string, org: string | null): str
   return lines.join('\n')
 }
 
-export function ApplicationKitPanel({ opportunityId, title, org }: { opportunityId: string; title: string; org: string | null }) {
+export function ApplicationKitPanel({
+  opportunityId,
+  title,
+  org,
+  url,
+}: {
+  opportunityId: string
+  title: string
+  org: string | null
+  url: string
+}) {
   const { data, isLoading } = useKit(opportunityId)
   const toast = useToast()
-  const [tab, setTab] = useState<'cv' | 'letter' | 'gaps' | 'evidence'>('cv')
+  const [tab, setTab] = useState<'cv' | 'letter' | 'send' | 'gaps' | 'evidence'>('cv')
 
   const kit = data?.kit ?? null
   const generate = useApiMutation(() => generateKit(opportunityId), ['kit', 'opportunity'], {
@@ -48,9 +61,26 @@ export function ApplicationKitPanel({ opportunityId, title, org }: { opportunity
   const tabs = [
     { key: 'cv' as const, label: 'CV' },
     { key: 'letter' as const, label: 'Cover letter' },
+    { key: 'send' as const, label: 'Send' },
     { key: 'gaps' as const, label: kit?.gaps.length ? `Gaps (${kit.gaps.length})` : 'Gaps' },
     { key: 'evidence' as const, label: 'Evidence' },
   ]
+
+  const emails = kit?.contact?.emails ?? []
+  const phones = kit?.contact?.phones ?? []
+  const mailto =
+    emails.length && kit?.email
+      ? `mailto:${emails[0]}?subject=${encodeURIComponent(kit.email.subject)}&body=${encodeURIComponent(kit.email.body)}`
+      : null
+
+  async function copyText(value: string, message: string) {
+    try {
+      await navigator.clipboard.writeText(value)
+      toast(message)
+    } catch {
+      toast('Clipboard is blocked in this browser', 'danger')
+    }
+  }
 
   async function copy() {
     if (!kit) return
@@ -189,6 +219,92 @@ export function ApplicationKitPanel({ opportunityId, title, org }: { opportunity
 
             {tab === 'letter' && (
               <div className="whitespace-pre-wrap text-[13.5px] leading-[1.7] text-fg/90">{kit.coverLetter}</div>
+            )}
+
+            {tab === 'send' && (
+              <div className="flex flex-col gap-4">
+                {!kit.email ? (
+                  <p className="text-[12.5px] leading-relaxed text-muted">
+                    This draft was built before email drafting existed. Press <span className="text-fg">Rebuild</span> and
+                    an email will be written with it.
+                  </p>
+                ) : (
+                  <>
+                    <div>
+                      <h4 className="text-[10.5px] uppercase tracking-[0.14em] text-faint">Subject</h4>
+                      <p className="mt-1 text-[13px] font-medium leading-snug">{kit.email.subject}</p>
+                    </div>
+                    <div>
+                      <div className="flex items-center justify-between gap-2">
+                        <h4 className="text-[10.5px] uppercase tracking-[0.14em] text-faint">Email</h4>
+                        <Button size="sm" variant="ghost" onClick={() => copyText(kit.email!.body, 'Email copied')}>
+                          <Copy /> Copy
+                        </Button>
+                      </div>
+                      <div className="mt-1 whitespace-pre-wrap text-[13px] leading-[1.7] text-fg/90">{kit.email.body}</div>
+                    </div>
+
+                    <div className="border-t border-line/60 pt-3">
+                      <h4 className="text-[10.5px] uppercase tracking-[0.14em] text-faint">Send to</h4>
+                      {emails.length ? (
+                        <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                          {emails.map((address) => (
+                            <a
+                              key={address}
+                              href={`mailto:${address}?subject=${encodeURIComponent(kit.email!.subject)}&body=${encodeURIComponent(kit.email!.body)}`}
+                              className="inline-flex items-center gap-1.5 rounded-[3px] border border-line bg-surface px-2 py-1 text-[11.5px] text-fg hover:border-accent"
+                            >
+                              <Mail className="size-3" /> {address}
+                            </a>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="mt-1.5 text-[11.5px] leading-relaxed text-muted">
+                          The posting published no email address. Moey will not invent one from a domain — open the
+                          original posting to find the right contact, or use the phone number if there is one.
+                        </p>
+                      )}
+
+                      {phones.length > 0 && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                          {phones.map((phone) => (
+                            <a
+                              key={phone}
+                              href={`tel:${phone.replace(/[^\d+]/g, '')}`}
+                              className="inline-flex items-center gap-1.5 rounded-[3px] border border-line bg-surface px-2 py-1 text-[11.5px] text-fg hover:border-accent"
+                            >
+                              <Phone className="size-3" /> {phone}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+
+                      <div className="mt-2.5 flex flex-wrap items-center gap-1.5">
+                        {mailto && (
+                          <a href={mailto}>
+                            <Button size="sm" variant="primary">
+                              <Send /> Open in mail app
+                            </Button>
+                          </a>
+                        )}
+                        {/^https?:\/\//i.test(url) && (
+                          <a href={url} target="_blank" rel="noreferrer noopener">
+                            <Button size="sm" variant="ghost">
+                              Original posting <ExternalLink className="size-3" />
+                            </Button>
+                          </a>
+                        )}
+                      </div>
+
+                      <p className="mt-2.5 text-[11px] leading-relaxed text-faint">
+                        This opens your own mail client with the draft filled in. Moey does not send anything, and a mail
+                        link cannot attach files — download the `.md` from the CV tab and attach it, or paste the letter
+                        into the body.
+                      </p>
+                    </div>
+                  </>
+                )}
+              </div>
             )}
 
             {tab === 'gaps' && (

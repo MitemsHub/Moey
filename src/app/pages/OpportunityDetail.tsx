@@ -167,7 +167,7 @@ export function OpportunityDetail() {
           )}
         </section>
 
-        <ApplicationKitPanel opportunityId={data.id} title={data.title} org={data.org} />
+        <ApplicationKitPanel opportunityId={data.id} title={data.title} org={data.org} url={data.url} />
 
         <section className="border-t border-line px-5 py-5 sm:px-7">
           <h2 className="text-[10.5px] uppercase tracking-[0.14em] text-muted">Decision log</h2>

@@ -30,6 +30,10 @@ export interface Kit {
   coverLetter: string
   evidence: { claim: string; source: string }[]
   gaps: string[]
+  /** The email that would carry the CV and letter, plus where it can be sent. */
+  email: { subject: string; body: string }
+  /** Addresses found in the posting text. Never guessed from a domain. */
+  contact: { emails: string[]; phones: string[] }
   model: string
   generatedAt: number
   repoCount: number
@@ -138,8 +142,9 @@ const SYSTEM = [
   '5. Cover letter: at most 220 words, addressed to the organisation by name, one concrete opening sentence tied to their problem, then evidence, then a short close. No invented enthusiasm or familiarity with their internal work.',
   '6. If the supplied experience is thin, write a shorter CV rather than a padded one. Omit a section that has no evidence.',
   '7. Plain direct prose, first person. Use the spelling the posting uses.',
+  '8. Also write the email that would carry this application: a subject line naming the role, and a body of at most 120 words that says the CV and cover letter are attached, names one concrete thing from the posting, and closes. No invented prior contact, no claim that anyone already replied.',
   'Reply with JSON only, exactly these keys:',
-  '{"headline":string,"summary":string,"skills":string[],"experience":[{"role":string,"org":string,"period":string|null,"bullets":string[]}],"projects":[{"name":string,"url":string|null,"why":string}],"coverLetter":string,"evidence":[{"claim":string,"source":string}],"gaps":string[]}',
+  '{"headline":string,"summary":string,"skills":string[],"experience":[{"role":string,"org":string,"period":string|null,"bullets":string[]}],"projects":[{"name":string,"url":string|null,"why":string}],"coverLetter":string,"emailSubject":string,"emailBody":string,"evidence":[{"claim":string,"source":string}],"gaps":string[]}',
 ].join('\n')
 
 function strings(value: unknown, limit: number): string[] {
@@ -159,6 +164,33 @@ interface Draft {
   coverLetter: string
   evidence: { claim: string; source: string }[]
   gaps: string[]
+  email: { subject: string; body: string }
+}
+
+/**
+ * Contact details come only from text the source published. A domain is not an
+ * address: `careers@<their domain>` would be a fabrication, so no address is
+ * invented and a prospect with none is reported as having none.
+ */
+function extractContact(body: string): { emails: string[]; phones: string[] } {
+  const emails = [
+    ...new Set(
+      (body.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi) ?? [])
+        .map((value) => value.toLowerCase())
+        .filter((value) => !/^(no-?reply|do-?not-?reply|abuse|privacy)@/.test(value))
+        .filter((value) => !/\.(png|jpg|jpeg|gif|webp|svg)$/i.test(value)),
+    ),
+  ].slice(0, 3)
+
+  const phones = [
+    ...new Set(
+      (body.match(/\+?\d[\d\s().-]{7,}\d/g) ?? [])
+        .map((value) => value.trim())
+        .filter((value) => value.replace(/\D/g, '').length >= 9),
+    ),
+  ].slice(0, 3)
+
+  return { emails, phones }
 }
 
 /**
@@ -223,6 +255,23 @@ function composeLocal(profile: KitProfile, repos: RepoFact[], opportunity: { tit
       ...projects.map((project) => ({ claim: project.name, source: `github.com/${profile.github}/${project.name}` })),
     ].slice(0, 14),
     gaps: [],
+    email: {
+      subject: `Application: ${opportunity.title}`.slice(0, 160),
+      body: [
+        `Hello${opportunity.org ? ` ${opportunity.org}` : ''},`,
+        '',
+        `I am applying for ${opportunity.title}. My CV and cover letter are attached.`,
+        profile.summary ? `\n${profile.summary.trim()}` : '',
+        profile.skills.length ? `\nSkills: ${profile.skills.slice(0, 12).join(', ')}.` : '',
+        '',
+        'This draft was assembled from my profile without a writing model. Please read it before sending.',
+        '',
+        profile.name,
+      ]
+        .filter((line) => line !== '')
+        .join('\n')
+        .slice(0, 4000),
+    },
   }
 }
 
@@ -234,7 +283,8 @@ function composeLocal(profile: KitProfile, repos: RepoFact[], opportunity: { tit
 function unbackedFigures(draft: Draft, corpus: string): string[] {
   const source = corpus.toLowerCase()
   const text = [draft.headline, draft.summary, draft.coverLetter, ...draft.experience.flatMap((e) => e.bullets), ...draft.projects.map((p) => p.why)].join(' ')
-  const figures = new Set(text.match(/\b\d+(?:\.\d+)?%?\b/g) ?? [])
+  // No trailing \b: it would split "40%" into "40" and lose the sign of the claim.
+  const figures = new Set(text.match(/\b\d+(?:\.\d+)?%?/g) ?? [])
   return [...figures].filter((figure) => !source.includes(figure.toLowerCase())).slice(0, 8)
 }
 
@@ -273,6 +323,8 @@ function normalise(parsed: Record<string, unknown>, profile: KitProfile): Draft 
   const coverLetter = clamp(parsed.coverLetter, 4000)
   if (!coverLetter) throw new Error('model_shape')
 
+  const emailBody = clamp(parsed.emailBody, 3000) || coverLetter.slice(0, 1200)
+
   return {
     headline: clamp(parsed.headline, 160) || profile.headline || profile.name,
     summary: clamp(parsed.summary, 1200),
@@ -282,6 +334,10 @@ function normalise(parsed: Record<string, unknown>, profile: KitProfile): Draft 
     coverLetter,
     evidence,
     gaps: strings(parsed.gaps, 20).map((gap) => gap.slice(0, 300)),
+    email: {
+      subject: clamp(parsed.emailSubject, 160) || `Application: ${profile.name}`,
+      body: emailBody,
+    },
   }
 }
 
@@ -433,7 +489,15 @@ kit.post('/:id/kit', async (c) => {
         : 'No GitHub username is set on this profile, so no repositories were supplied.',
   )
 
-  const content: Omit<Kit, 'generatedAt' | 'repoCount'> = { ...draft, model, notes }
+  // Addresses are read from the posting only. Nothing is constructed from a domain.
+  const contact = extractContact(String(row.body ?? ''))
+  notes.push(
+    contact.emails.length
+      ? `${contact.emails.length} address${contact.emails.length === 1 ? '' : 'es'} found in the posting text. Moey opens your mail app; it never sends.`
+      : 'No email address appears in the posting text, so there is nothing to send to automatically. Use the original link or the recorded phone number.',
+  )
+
+  const content: Omit<Kit, 'generatedAt' | 'repoCount'> = { ...draft, contact, model, notes }
   const stamp = now()
   await db.batch([
     db.prepare(`DELETE FROM documents WHERE owner_sub = ? AND opportunity_id = ? AND kind = 'kit'`).bind(owner, oppId),
@@ -457,5 +521,6 @@ kit.post('/:id/kit', async (c) => {
   return privateJson(c, { kit: { ...content, generatedAt: stamp, repoCount: repos.length } })
 })
 
-// Exported for the unit test: keyless composition must never invent a sentence.
-export const __testing = { composeLocal, normalise }
+// Exported for tests: composition must never invent a sentence, and contact
+// details must only ever come from published text.
+export const __testing = { composeLocal, normalise, extractContact, unbackedFigures }

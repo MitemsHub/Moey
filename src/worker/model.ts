@@ -97,7 +97,9 @@ export function providerChain(env: Env): ModelChoice[] {
           label: 'Google AI Studio',
           baseUrl: GEMINI_BASE,
           chatUrl: GEMINI_BASE,
-          model: env.GEMINI_MODEL || 'gemini-2.5-flash',
+          // Google retires model ids for new keys without warning (gemini-2.5-flash
+          // now 404s), and its prompt ids are fast where the newest is not.
+          model: env.GEMINI_MODEL || 'gemini-3-flash-preview',
           key: env.GEMINI_API_KEY,
           shape: 'gemini',
           keyless: false,
@@ -259,14 +261,34 @@ async function attempt(choice: ModelChoice, request: ChatRequest): Promise<ChatR
           contents: [{ role: 'user', parts: [{ text: request.user }] }],
           generationConfig: {
             temperature: request.temperature ?? 0.2,
-            maxOutputTokens: request.maxTokens ?? 2048,
+            // Gemini counts thinking tokens against this budget, and a reply cut
+            // mid-JSON is useless. Give it room; the prompt still bounds the prose.
+            maxOutputTokens: Math.max(3000, (request.maxTokens ?? 2048) * 2),
             ...(choice.jsonMode ? { responseMimeType: 'application/json' } : {}),
           },
         }),
       })
-      if (!response.ok) throw new Error(`gemini_${response.status}`)
-      const data = (await response.json()) as GeminiResponse
-      return (data.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join('').trim()
+      if (!response.ok) {
+        const detail = await response.text().catch(() => '')
+        // A retired model reports NOT_FOUND; that is a naming problem, not an auth
+        // problem, so it is worth one retry on the current id.
+        if (response.status === 404 && /no longer available|NOT_FOUND/i.test(detail)) {
+          throw new Error(`gemini_model_retired`)
+        }
+        throw new Error(`gemini_${response.status}`)
+      }
+      const data = (await response.json()) as GeminiResponse & {
+        promptFeedback?: { blockReason?: string }
+        candidates?: { content?: { parts?: { text?: string }[] }; finishReason?: string }[]
+      }
+      const text = (data.candidates?.[0]?.content?.parts ?? []).map((part) => part.text ?? '').join('').trim()
+      if (!text) {
+        // A blocked prompt or an empty candidate looks identical to a bad reply, so
+        // name the difference for the operator instead of hiding it.
+        const reason = data.promptFeedback?.blockReason ?? data.candidates?.[0]?.finishReason ?? 'no_candidates'
+        throw new Error(`gemini_empty_${String(reason).toLowerCase()}`)
+      }
+      return text
     }
 
     const response = await fetch(choice.chatUrl, {
@@ -316,22 +338,68 @@ async function attempt(choice: ModelChoice, request: ChatRequest): Promise<ChatR
         return { text, provider: choice.id, providerLabel: choice.label, model: next }
       }
     }
+    // Google renames models for new accounts, and free quotas are per model: a 429
+    // on one id does not mean the account is exhausted. Try the other current ids
+    // before giving up on the provider entirely.
+    if (choice.id === 'gemini' && (reason === 'gemini_model_retired' || /^gemini_(4\d\d|5\d\d)$/.test(reason))) {
+      for (const next of ['gemini-3-flash-preview', 'gemini-3.8-flash', 'gemini-flash-latest']) {
+        if (next === choice.model) continue
+        try {
+          const text = await run(next)
+          return { text, provider: choice.id, providerLabel: choice.label, model: next }
+        } catch {
+          continue
+        }
+      }
+    }
     throw error
   }
 }
 
-/** JSON-shaped chat call: parses the reply and reports which provider produced it. */
-export async function chatJson<T>(env: Env, request: ChatRequest): Promise<{ data: T; result: ChatResult }> {
-  const result = await chat(env, request)
-  const cleaned = result.text
+/** Parses a reply that was asked to be JSON, tolerating fences and preamble. */
+function parseReply<T>(text: string, provider: string): T {
+  const cleaned = text
     .replace(/^```(?:json)?\s*/i, '')
     .replace(/\s*```$/, '')
     .trim()
-  let data: T
   try {
-    data = JSON.parse(cleaned) as T
+    return JSON.parse(cleaned) as T
   } catch {
-    throw new Error(`${result.provider}_invalid_json`)
+    // Some models prepend a sentence even when asked for JSON. Take the outermost
+    // object rather than throwing away a usable draft.
+    const start = cleaned.indexOf('{')
+    const end = cleaned.lastIndexOf('}')
+    // The length is part of the error on purpose: a truncated reply and a prose
+    // reply look identical from the outside, and that ambiguity cost a debug cycle.
+    if (start === -1 || end <= start) throw new Error(`${provider}_invalid_json(len=${cleaned.length})`)
+    try {
+      return JSON.parse(cleaned.slice(start, end + 1)) as T
+    } catch {
+      throw new Error(`${provider}_invalid_json(len=${cleaned.length},tail=${JSON.stringify(cleaned.slice(-40))})`)
+    }
   }
-  return { data, result }
+}
+
+/**
+ * JSON-shaped chat call. Parsing happens per provider, so a reply that cannot be
+ * read falls through to the next one instead of ending the request — the failure
+ * this was written to fix was Gemini returning truncated JSON and the whole draft
+ * dying while two working providers sat unused.
+ */
+export async function chatJson<T>(env: Env, request: ChatRequest): Promise<{ data: T; result: ChatResult }> {
+  const chain = providerChain(env)
+  if (!chain.length) throw new Error('no_provider')
+  const failures: string[] = []
+  for (const choice of chain) {
+    try {
+      const result = await attempt(choice, request)
+      return { data: parseReply<T>(result.text, result.provider), result }
+    } catch (error) {
+      const reason = error instanceof Error ? error.message : 'unknown'
+      failures.push(reason)
+      // Provider ids and error codes only: never keys or prompt content.
+      console.warn(`[model] ${choice.id} failed: ${reason}`)
+    }
+  }
+  throw new Error(failures.join(', ') || 'no_provider')
 }

@@ -151,6 +151,9 @@ export interface ApplicationKit {
   coverLetter: string
   evidence: { claim: string; source: string }[]
   gaps: string[]
+  /** Added with the outreach feature; absent on kits built before it. */
+  email?: { subject: string; body: string }
+  contact?: { emails: string[]; phones: string[] }
   model: string
   generatedAt: number
   repoCount: number

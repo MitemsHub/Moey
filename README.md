@@ -82,6 +82,18 @@ for it. A kit is generated server-side, stored against the opportunity, and re-r
   used. A missing key degrades the output's polish, never its truthfulness.
 - **Stored** in `documents` as JSON with the model name, so a draft can always be traced to the model that wrote it.
 
+### Sending it
+
+The kit also writes the **email** that would carry the application (subject + body), and the **Send** tab turns it
+into action:
+
+- Addresses and phone numbers are read from the posting text only. `careers@theirdomain` is never constructed — a
+  guessed address is a fabrication, so a posting with no address honestly reports that there is nothing to send to.
+- `mailto:` opens your own mail client with the draft filled in; `tel:` does the same for a recorded number.
+  **Moey never sends anything**, and a mail link cannot attach files — download the `.md` and attach it, or paste the
+  letter into the body.
+- If the draft contains a figure that appears nowhere in your inputs, it is listed under Gaps before you send.
+
 A provider is picked automatically from whatever keys are configured — see *Free model providers* below. Nothing
 has to be paid for.
 
@@ -95,14 +107,24 @@ moves to the next, and if all of them fail the kit falls back to the assembled v
 | 1 | Freebuff API | key + credits | paid | `OPENAI_API_KEY` |
 | 2 | Groq | free key, no card | 30 req/min, 1,000 req/day | `GROQ_API_KEY` |
 | 3 | OpenRouter | free key | 20 req/min, 50 req/day on `:free` models | `OPENROUTER_API_KEY` |
-| 4 | Google AI Studio | free key | per-model daily quota | `GEMINI_API_KEY` |
-| 5 | GitHub Models | any GitHub token | free tier per model | `GITHUB_TOKEN` |
+| 4 | Google AI Studio | free key | per-model daily quota | `GEMINI_API_KEY` (defaults to `gemini-3-flash-preview`) |
+| 5 | GitHub Models | token with Models access | free tier per model | `GITHUB_TOKEN` (see note) |
 | 6 | Cerebras | free key | ~1M tokens/day per model | `CEREBRAS_API_KEY` |
 | 7 | Pollinations | **none at all** | anonymous tier; mostly good for one draft at a time | `POLLINATIONS_API_KEY` only to raise the budget |
 | 8 | LLM7 | none at all | shared, heavily rate-limited | `LLM7_TOKEN` (optional) |
 
 `LLM_PROVIDER=groq` (or any id above) forces one. Every model name is overridable
 (`GROQ_MODEL`, `OPENROUTER_MODEL`, `GEMINI_MODEL`, …), because free catalogues rename models constantly.
+
+Field notes from wiring these up, so the next person does not repeat them:
+
+- **Google retires model ids per account.** `gemini-2.5-flash` returns 404 for keys created after its replacement
+  shipped, and the newest id (`gemini-3.8-flash`) returned 503 during testing where `gemini-3-flash-preview`
+  answered in 5–10 s. The default is the fast one, and a 404/429/5xx triggers one retry across the other current ids,
+  because free quotas are counted per model.
+- **GitHub Models needs a token with Models access.** A fine-grained token without that permission returns HTTP 200
+  with the literal body `OK` for every model name. The chain treats that as a failure and moves on rather than
+  pretending a draft was produced.
 
 Two honest notes. First, only the two keyless entries work with no setup at all, and they behave differently in
 practice: Pollinations answered a full draft in ~12s with `reasoning_effort: low`, while LLM7 answered once and then
