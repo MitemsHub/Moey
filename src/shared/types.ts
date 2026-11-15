@@ -182,6 +182,7 @@ export interface Me {
     files: boolean
     auth: 'freebuff' | 'development'
     qualifier: 'rules' | 'model'
+    provider: { id: string; label: string; model: string; keyless: boolean } | null
     ingest: boolean
   }
 }

@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { authMode, getAuth, requireUser } from './auth'
 import { requireDb } from './db'
 import type { AppContext, Env } from './env'
+import { resolveModel } from './model'
 import { applications } from './routes/applications'
 import { ingestRoute } from './routes/ingest'
 import { kit } from './routes/kit'
@@ -21,7 +22,12 @@ app.get('/api/auth/status', (c) => {
     mode: authMode(c.env, c.req.raw),
     database: Boolean(c.env.DB),
     files: Boolean(c.env.FILES),
-    qualifier: c.env.OPENAI_API_KEY ? 'model' : 'rules',
+    qualifier: resolveModel(c.env) ? 'model' : 'rules',
+    // Which provider would answer, and whether it needs any account at all.
+    provider: (() => {
+      const choice = resolveModel(c.env)
+      return choice ? { id: choice.id, label: choice.label, model: choice.model, keyless: choice.keyless } : null
+    })(),
   })
 })
 

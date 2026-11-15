@@ -1,4 +1,5 @@
 import type { Env } from './env'
+import { chatJson, hasModel } from './model'
 
 // A closed vocabulary keeps skill extraction deterministic and reviewable. It is
 // intentionally narrow: a skill that is not in this list is not silently guessed,
@@ -21,7 +22,8 @@ export interface RuleResult {
   matched: string[]
   missing: string[]
   rationale: string
-  model: 'rules' | 'model'
+  /** `rules`, or `model:<provider>` naming the provider that actually answered. */
+  model: string
   confidence: number
 }
 
@@ -259,15 +261,10 @@ export function scoreByRules(opp: OpportunityForScoring, profile: ProfileForScor
     confidence: opp.signal === 'emerging' ? 0.35 : detected.length ? 0.62 : 0.4,
   }
 }
-
-interface ChatResponse {
-  choices?: { message?: { content?: string } }[]
-}
-
 /**
- * Optional model pass. Only called when OPENAI_API_KEY is configured AND the rule
- * score cleared the gate, so a scan cannot quietly spend money on every row.
- * Any failure degrades to the rule result — the model never blocks ingestion.
+ * Optional model pass. Only called when a provider is configured AND the rule score
+ * cleared the gate, so a scan cannot quietly spend money on every row. Any failure
+ * degrades to the rule result — the model never blocks ingestion.
  */
 export async function refineWithModel(
   env: Env,
@@ -275,69 +272,51 @@ export async function refineWithModel(
   profile: ProfileForScoring,
   base: RuleResult,
 ): Promise<RuleResult> {
-  const key = env.OPENAI_API_KEY
-  if (!key) return base
-  const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 20_000)
+  if (!hasModel(env)) return base
   try {
-    const response = await fetch(`${env.OPENAI_BASE_URL || 'https://freebuff.com/api/v1/paid'}/chat/completions`, {
-      method: 'POST',
-      signal: controller.signal,
-      headers: { 'content-type': 'application/json', authorization: `Bearer ${key}` },
-      body: JSON.stringify({
-        model: env.OPENAI_MODEL || 'gpt-4o-mini',
-        temperature: 0,
-        response_format: { type: 'json_object' },
-        messages: [
-          {
-            role: 'system',
-            content:
-              'You score how well a published opportunity fits a profile. Reply with JSON only: ' +
-              '{"score":0-100,"matched":string[],"missing":string[],"rationale":string}. ' +
-              'Never invent facts that are not in the opportunity text. If the text is too thin to judge, lower the score and say so.',
-          },
-          {
-            role: 'user',
-            content: JSON.stringify({
-              profile: {
-                kind: profile.kind,
-                headline: profile.headline,
-                skills: profile.skills,
-                services: profile.services,
-              },
-              opportunity: {
-                title: opp.title,
-                org: opp.org,
-                pipeline: opp.pipeline,
-                signal: opp.signal,
-                location: opp.location,
-                deadline: opp.deadline ? new Date(opp.deadline).toISOString() : null,
-                text: opp.body.slice(0, 6000),
-              },
-              rules_baseline: { score: base.score, matched: base.matched, rationale: base.rationale },
-            }),
-          },
-        ],
+    const { data: parsed, result } = await chatJson<{
+      score?: number
+      matched?: string[]
+      missing?: string[]
+      rationale?: string
+    }>(env, {
+      system:
+        'You score how well a published opportunity fits a profile. Reply with JSON only: ' +
+        '{"score":0-100,"matched":string[],"missing":string[],"rationale":string}. ' +
+        'Never invent facts that are not in the opportunity text. If the text is too thin to judge, lower the score and say so.',
+      user: JSON.stringify({
+        profile: {
+          kind: profile.kind,
+          headline: profile.headline,
+          skills: profile.skills,
+          services: profile.services,
+        },
+        opportunity: {
+          title: opp.title,
+          org: opp.org,
+          pipeline: opp.pipeline,
+          signal: opp.signal,
+          location: opp.location,
+          deadline: opp.deadline ? new Date(opp.deadline).toISOString() : null,
+          text: opp.body.slice(0, 6000),
+        },
+        rules_baseline: { score: base.score, matched: base.matched, rationale: base.rationale },
       }),
+      temperature: 0,
+      maxTokens: 700,
+      timeoutMs: 20_000,
     })
-    if (!response.ok) return base
-    const data = (await response.json()) as ChatResponse
-    const content = data.choices?.[0]?.message?.content
-    if (!content) return base
-    const parsed = JSON.parse(content) as { score?: number; matched?: string[]; missing?: string[]; rationale?: string }
     if (typeof parsed.score !== 'number' || !Number.isFinite(parsed.score)) return base
     return {
       score: Math.max(0, Math.min(100, Math.round(parsed.score))),
       matched: Array.isArray(parsed.matched) ? parsed.matched.slice(0, 12).map(String) : base.matched,
       missing: Array.isArray(parsed.missing) ? parsed.missing.slice(0, 12).map(String) : base.missing,
       rationale: String(parsed.rationale ?? base.rationale).slice(0, 600),
-      model: 'model',
+      model: `model:${result.provider}`,
       confidence: 0.72,
     }
   } catch {
     return base
-  } finally {
-    clearTimeout(timer)
   }
 }
 

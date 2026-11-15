@@ -82,7 +82,38 @@ for it. A kit is generated server-side, stored against the opportunity, and re-r
   used. A missing key degrades the output's polish, never its truthfulness.
 - **Stored** in `documents` as JSON with the model name, so a draft can always be traced to the model that wrote it.
 
-Set `OPENAI_API_KEY` (see *Configuration*) for the written version. Until then the panel says so plainly.
+A provider is picked automatically from whatever keys are configured — see *Free model providers* below. Nothing
+has to be paid for.
+
+## Free model providers
+
+The engine tries providers in this order and uses the first one that answers; if one rate-limits or times out it
+moves to the next, and if all of them fail the kit falls back to the assembled version above instead of erroring.
+
+| # | Provider | Needs | Free allowance | Set |
+| --- | --- | --- | --- | --- |
+| 1 | Freebuff API | key + credits | paid | `OPENAI_API_KEY` |
+| 2 | Groq | free key, no card | 30 req/min, 1,000 req/day | `GROQ_API_KEY` |
+| 3 | OpenRouter | free key | 20 req/min, 50 req/day on `:free` models | `OPENROUTER_API_KEY` |
+| 4 | Google AI Studio | free key | per-model daily quota | `GEMINI_API_KEY` |
+| 5 | GitHub Models | any GitHub token | free tier per model | `GITHUB_TOKEN` |
+| 6 | Cerebras | free key | ~1M tokens/day per model | `CEREBRAS_API_KEY` |
+| 7 | Pollinations | **none at all** | anonymous tier; mostly good for one draft at a time | `POLLINATIONS_API_KEY` only to raise the budget |
+| 8 | LLM7 | none at all | shared, heavily rate-limited | `LLM7_TOKEN` (optional) |
+
+`LLM_PROVIDER=groq` (or any id above) forces one. Every model name is overridable
+(`GROQ_MODEL`, `OPENROUTER_MODEL`, `GEMINI_MODEL`, …), because free catalogues rename models constantly.
+
+Two honest notes. First, only the two keyless entries work with no setup at all, and they behave differently in
+practice: Pollinations answered a full draft in ~12s with `reasoning_effort: low`, while LLM7 answered once and then
+rejected the same anonymous token (`invalid_api_key`, `concurrent_request_limit_exceeded`) and timed out on a real
+draft. LLM7 is therefore tried last and never assumed. Second, a draft that takes ~20s on a free tier is normal;
+the panel shows a loading state, and if every provider fails the kit falls back to the assembled version instead of
+erroring. Second, this deliberately does **not** use `gpt4free`-style projects: those reverse-engineer other
+products' chat UIs, break their terms, get keys and IPs banned, and cannot run in a Worker anyway. The maintained
+lists that are legitimate — `cheahjs/free-llm-api-resources` (deleted by its author in late 2026),
+`nejib1/Free-LLM`, `OuterSpacee/free-ai-apis`, `tomasasz/litellm-free-models-proxy` — all point at the same
+handful of real free tiers, which is what the table above encodes.
 
 ## Install it as an app (PWA)
 

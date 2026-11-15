@@ -83,7 +83,13 @@ export function Settings() {
             ['Database', me.capabilities.database, 'D1 via the DB binding'],
             ['File storage', me.capabilities.files, 'R2 via the FILES binding'],
             ['Sign in with Freebuff', me.capabilities.auth === 'freebuff', 'FREEBUFF_CLIENT_ID'],
-            ['Model qualifier', me.capabilities.qualifier === 'model', me.capabilities.qualifier === 'model' ? 'OPENAI_API_KEY is set' : 'Rules-only scoring until OPENAI_API_KEY is set'],
+            [
+              'Model provider',
+              me.capabilities.qualifier === 'model',
+              me.capabilities.provider
+                ? `${me.capabilities.provider.label} · ${me.capabilities.provider.model}${me.capabilities.provider.keyless ? ' — keyless free tier, rate-limited' : ''}`
+                : 'Rules-only scoring until a provider key is set',
+            ],
             ['External ingest', me.capabilities.ingest, me.capabilities.ingest ? 'INGEST_SECRET is set' : 'Disabled — the GitHub Actions runner cannot push until INGEST_SECRET is set'],
           ].map(([label, ok, detail]) => (
             <li key={label as string} className="flex items-center gap-3 px-3.5 py-2.5">
