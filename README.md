@@ -109,8 +109,8 @@ moves to the next; if all of them fail, the kit falls back to the assembled vers
 | 1 | Freebuff API | key + credits | paid | `OPENAI_API_KEY` |
 | 2 | Groq | free key, no card | ~30 req/min, 1,000 req/day | `GROQ_API_KEY` |
 | 3 | OpenRouter | free key | ~20 req/min, 50 req/day on `:free` models | `OPENROUTER_API_KEY` |
-| 4 | Google AI Studio | free key | per-model daily quota | `GEMINI_API_KEY` |
-| 5 | GitHub Models | token with Models access | per-model free tier | `GITHUB_TOKEN` |
+| 4 | Google AI Studio | free key | per-model daily quota | `GEMINI_API_KEY` (default `gemini-3.6-flash`) |
+| 5 | GitHub Models | token with Models access | per-model free tier | `GITHUB_TOKEN` + `GITHUB_MODEL` (opt-in) |
 | 6 | Cerebras | free key | ~1M tokens/day per model | `CEREBRAS_API_KEY` |
 | 7 | Pollinations | none | anonymous, one draft at a time is realistic | optional `POLLINATIONS_API_KEY` |
 | 8 | LLM7 | none | shared and heavily throttled | optional `LLM7_TOKEN` |
@@ -120,13 +120,15 @@ because free catalogues rename models without warning.
 
 Three things we learned the hard way, recorded so nobody repeats the afternoon:
 
-- **Google retires model ids per account.** `gemini-2.5-flash` answers 404 for keys created after its replacement
-  shipped, and the newer `gemini-3.8-flash` returned 503 while `gemini-3-flash-preview` answered in 5–10 s. That
-  fast one is the default, and a 404, 429 or 5xx triggers one retry across the other current ids, because free
-  quotas are counted per model rather than per account.
-- **GitHub Models needs the token permission.** A fine-grained token without Models access returns HTTP 200 with the
-  literal body `OK`, for every model name. The chain treats that as a failure and moves on. Grant the token Models
-  read access (or use a classic token) and the provider starts working.
+- **Google counts free quota per model.** `gemini-3-flash-preview` answered well for an afternoon and then returned
+  429 `RESOURCE_EXHAUSTED` while the account still had quota everywhere else. `gemini-3.6-flash` and
+  `gemini-3.5-flash` answered a full drafting payload in 1.6 s and 2.6 s with valid JSON, so those are the default and
+  the first retry. `gemini-3.7-flash` and `gemini-flash-latest` exceeded 45 s on the same payload, and
+  `gemini-2.5-flash` still 404s for new keys, so neither is in the list. Any 404, 429 or 5xx moves to the next id.
+- **GitHub Models is opt-in on purpose.** A fine-grained token without Models access returns HTTP 200 with the
+  literal body `OK` for every model name and even for the catalogue endpoint, which is a guaranteed failed round
+  trip on every draft. It joins the chain only when `GITHUB_MODEL` is set, and then the token needs Models read
+  access. Set one only after the endpoint returns JSON to a request of your own.
 - **Keyless is real but thin.** Pollinations produced a complete draft in about 12 s with `reasoning_effort: low`.
   LLM7 answered once, then rejected its own anonymous token and timed out on a real draft, so it is tried last and
   never assumed.
@@ -145,8 +147,9 @@ public repositories as project evidence. Anonymous GitHub API calls are limited 
 will exhaust; with the token the limit is 5,000 per hour and the request carries a `user-agent`. The token is sent
 only to `api.github.com`, never to a model provider and never to the browser.
 
-**2. It unlocks GitHub Models as a fallback LLM**, if the token carries Models access. Without that permission the
-endpoint returns the literal string `OK`, which the chain correctly reads as a failure.
+**2. It can unlock GitHub Models as a fallback LLM**, if the token carries Models access *and* you name a model in
+`GITHUB_MODEL`. Without that permission the service answers `200` with the literal body `OK`, so a configured token
+sits off the chain by default rather than spending a failed request on every draft.
 
 What the token is **not** used for: it does not choose which repositories appear. That comes from the username field
 on your profile, so a CV only shows what you decided to show. Private repositories are filtered out even when the

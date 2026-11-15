@@ -45,6 +45,14 @@ const LLM7_PUBLIC_TOKEN = 'unused'
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta/models'
 
 /**
+ * Gemini ids in the order we are willing to use them, measured against this project
+ * rather than picked from a blog post. All three answered a drafting payload with
+ * valid JSON in 1.6–2.6s; `gemini-3-flash-preview` returned 429 because its free
+ * quota is per model and ran out first, and `gemini-3.7-flash` exceeded 45s.
+ */
+const GEMINI_PREFERRED = ['gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.1-flash-lite']
+
+/**
  * Every provider this deployment could call, most reliable first. The keyless tier is
  * always last: it is a genuine free endpoint, but it rate-limits hard and its model
  * names move, so it may not answer at all.
@@ -98,21 +106,26 @@ export function providerChain(env: Env): ModelChoice[] {
           baseUrl: GEMINI_BASE,
           chatUrl: GEMINI_BASE,
           // Google retires model ids for new keys without warning (gemini-2.5-flash
-          // now 404s), and its prompt ids are fast where the newest is not.
-          model: env.GEMINI_MODEL || 'gemini-3-flash-preview',
+          // now 404s) and counts free quota per model, so the default is the fast id
+          // measured to answer in under 3s rather than the newest or the preview.
+          model: env.GEMINI_MODEL || GEMINI_PREFERRED[0],
           key: env.GEMINI_API_KEY,
           shape: 'gemini',
           keyless: false,
           jsonMode: true,
         }
       : null,
-    env.GITHUB_TOKEN
+    // GitHub Models is opt-in, because a fine-grained token without Models access
+    // answers HTTP 200 with the literal body `OK` for every model, so leaving it on
+    // the chain buys a guaranteed failed round trip on every single draft. Set
+    // GITHUB_MODEL to opt in once the token can actually reach the service.
+    env.GITHUB_TOKEN && (env.GITHUB_MODEL ?? '').trim()
       ? {
           id: 'github',
           label: 'GitHub Models',
           baseUrl: 'https://models.github.ai/inference',
           chatUrl: 'https://models.github.ai/inference/chat/completions',
-          model: env.GITHUB_MODEL || 'openai/gpt-4o-mini',
+          model: (env.GITHUB_MODEL ?? '').trim(),
           key: env.GITHUB_TOKEN,
           shape: 'openai',
           keyless: false,
@@ -342,7 +355,7 @@ async function attempt(choice: ModelChoice, request: ChatRequest): Promise<ChatR
     // on one id does not mean the account is exhausted. Try the other current ids
     // before giving up on the provider entirely.
     if (choice.id === 'gemini' && (reason === 'gemini_model_retired' || /^gemini_(4\d\d|5\d\d)$/.test(reason))) {
-      for (const next of ['gemini-3-flash-preview', 'gemini-3.8-flash', 'gemini-flash-latest']) {
+      for (const next of GEMINI_PREFERRED) {
         if (next === choice.model) continue
         try {
           const text = await run(next)

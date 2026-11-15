@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 
 import type { Env } from '../src/worker/env'
-import { hasModel, resolveModel } from '../src/worker/model'
+import { hasModel, providerChain, resolveModel } from '../src/worker/model'
 
 const env = (values: Partial<Env>) => values as Env
 
@@ -33,5 +33,18 @@ describe('model provider resolution', () => {
 
   it('always has a provider, because the fallback needs no account', () => {
     expect(hasModel(env({}))).toBe(true)
+  })
+
+  it('defaults Gemini to an id measured to answer, not the preview quota trap', () => {
+    expect(resolveModel(env({ GEMINI_API_KEY: 'g' }))?.model).toBe('gemini-3.6-flash')
+  })
+
+  it('leaves GitHub Models off the chain until GITHUB_MODEL opts in', () => {
+    // A token without Models access answers 200 `OK`, so a default-on provider would
+    // burn a failing round trip on every draft.
+    expect(providerChain(env({ GITHUB_TOKEN: 't' })).map((entry) => entry.id)).not.toContain('github')
+    expect(providerChain(env({ GITHUB_TOKEN: 't', GITHUB_MODEL: 'openai/gpt-4o-mini' })).map((entry) => entry.id)).toContain(
+      'github',
+    )
   })
 })
