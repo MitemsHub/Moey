@@ -2,7 +2,23 @@ import { describe, expect, it } from 'vitest'
 
 import { __testing } from '../src/worker/routes/kit'
 
-const { extractContact, unbackedFigures } = __testing
+const { extractContact, unbackedFigures, systemFor } = __testing
+
+describe('prompt branches', () => {
+  it('still asks a job draft to read as an application with the CV attached', () => {
+    const prompt = systemFor('individual')
+    expect(prompt).toContain('application material for one specific posting')
+    expect(prompt).toContain('says the CV and cover letter are attached')
+    expect(prompt).not.toContain('business record')
+  })
+
+  it('asks a business draft for a pitch with no attachments', () => {
+    const prompt = systemFor('business')
+    expect(prompt).toContain('business record')
+    expect(prompt).toContain('no attachments mentioned')
+    expect(prompt).not.toContain('CV and cover letter are attached')
+  })
+})
 
 describe('contact extraction', () => {
   it('finds an address the posting actually published', () => {

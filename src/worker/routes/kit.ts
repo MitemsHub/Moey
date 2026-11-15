@@ -145,8 +145,25 @@ async function loadKitProfile(db: D1Database, owner: string, kind: string): Prom
   }
 }
 
-const SYSTEM_HEAD = [
-  'You write outreach material for one specific record, using only the facts supplied in the user message.',
+/**
+ * The application prompt, kept exactly as it was before business rows existed: the
+ * wording names a posting, and a job draft that stops sounding like an application is
+ * a regression even if every rule survives.
+ */
+const APPLICATION_INTRO = [
+  'You write application material for one specific posting, using only the facts supplied in the user message.',
+  'Hard rules:',
+  '1. Never invent an employer, role title, date, degree, certification, client name, metric or award.',
+  '2. If the posting asks for something the supplied facts do not evidence, do not claim it. Put it in "gaps".',
+  '3. Every bullet must trace to a supplied fact: a stated skill, a stated service, a line of stated experience, or a named repository.',
+  '4. No hype: never use passionate, leverage, seamless, cutting-edge, synergy, rockstar, ninja, or emoji.',
+  '5. If the supplied experience is thin, write a shorter CV rather than a padded one. Omit a section that has no evidence.',
+  '6. Plain direct prose, first person. Use the spelling the posting uses.',
+]
+
+/** The same rules, addressed to a business record rather than a posting. */
+const OUTREACH_HEAD = [
+  'You write outreach material for one specific business record, using only the facts supplied in the user message.',
   'Hard rules:',
   '1. Never invent an employer, role title, date, degree, certification, client name, metric or award.',
   '2. If the record asks for something the supplied facts do not evidence, do not claim it. Put it in "gaps".',
@@ -171,7 +188,7 @@ const SYSTEM_JSON_KEYS =
 function systemFor(pipeline: 'individual' | 'business'): string {
   if (pipeline === 'business') {
     return [
-      ...SYSTEM_HEAD,
+      ...OUTREACH_HEAD,
       '7. This record is a business observed in public data, not a job advert, and the owner has not asked to be contacted. Be brief and specific about what you observed.',
       '8. Cover letter: at most 180 words, addressed to the business by name, naming the observed problem (for example a recorded website that no longer resolves) and what you would offer to fix. Do not thank them for an opportunity, do not pretend to know their plans, do not quote a price.',
       '9. Write the email too: subject naming the business and the observed issue; body of at most 90 words, plain, no attachments mentioned, no CV language, one line of relevant experience, and a way to reply. Never claim they contacted you or that you have met.',
@@ -180,7 +197,7 @@ function systemFor(pipeline: 'individual' | 'business'): string {
     ].join('\n')
   }
   return [
-    ...SYSTEM_HEAD,
+    ...APPLICATION_INTRO,
     '7. Cover letter: at most 220 words, addressed to the organisation by name, one concrete opening sentence tied to their problem, then evidence, then a short close. No invented enthusiasm or familiarity with their internal work.',
     '8. Also write the email that would carry this application: a subject line naming the role, and a body of at most 120 words that says the CV and cover letter are attached, names one concrete thing from the posting, and closes. No invented prior contact, no claim that anyone already replied.',
     SYSTEM_JSON_KEYS,
@@ -563,7 +580,7 @@ kit.post('/:id/kit', async (c) => {
       ? `${contact.emails.length} address${contact.emails.length === 1 ? '' : 'es'} found in the posting text. Moey opens your mail app; it never sends.`
       : contact.phones.length
         ? `No email address appears in the ${pipeline === 'business' ? 'record' : 'posting'} text. The recorded number is the way in; tapping it opens your dialler.`
-        : 'No email address or phone number appears in the source text, so there is nothing to contact. Open the source record and look for a route yourself.',
+        : `No email address or phone number appears in the ${pipeline === 'business' ? 'record' : 'posting'} text, so there is nothing to contact. Open the original ${pipeline === 'business' ? 'record' : 'posting'} and look for a route yourself.`,
   )
 
   const content: Omit<Kit, 'generatedAt' | 'repoCount'> = { ...draft, contact, audience: pipeline, model, notes }
@@ -592,4 +609,4 @@ kit.post('/:id/kit', async (c) => {
 
 // Exported for tests: composition must never invent a sentence, and contact
 // details must only ever come from published text.
-export const __testing = { composeLocal, normalise, extractContact, unbackedFigures }
+export const __testing = { composeLocal, normalise, extractContact, unbackedFigures, systemFor }
