@@ -178,6 +178,18 @@ Secrets apply to the running Worker, so the order is: deploy once, then set them
 With no provider key at all the engine still runs: scores are tagged `rules`, the model gate is skipped, and the
 interface says so plainly.
 
+## Hosting: why the app is not on GitHub Pages
+
+**Live preview: <https://site-fe76456ceb3740f9a330fdd592e29646.freebuff.page>**
+
+GitHub Pages serves static files only. The client calls `/api/*` on its own origin, so a Pages deployment of
+`dist/client` returns the shell and a `404` for every read — verified, not assumed. Moey needs D1 for the rows, a
+Worker route for drafting, and a session so one account cannot read another's data, so it runs on a Worker.
+
+Pages is still used, for the one thing it can honestly do: `pages/` is a static front door that explains the
+product and opens the working app. `.github/workflows/pages.yml` publishes it on every push that touches `pages/`,
+which is why the Pages settings show GitHub Actions as the source. Nothing needs to be run by hand.
+
 ## Install it as an app
 
 A web manifest, a service worker and 192/512/maskable icons ship with the build, so the app installs and opens in

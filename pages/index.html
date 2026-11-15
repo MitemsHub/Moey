@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Moey — Mitemshub Opportunity Engine</title>
+    <meta
+      name="description"
+      content="Opportunity discovery, qualification and application drafting for individual work and Mitemshub engagements. The app runs on a Worker; this page opens it."
+    />
+    <meta name="theme-color" content="#eeeadf" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <style>
+      :root {
+        --paper: #eeeadf;
+        --ink: #1c1a16;
+        --muted: #5d564a;
+        --line: #d5cdbc;
+        --accent: #7a3f2a;
+        --surface: #f7f4ec;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; padding: 0; }
+      body {
+        background: var(--paper);
+        color: var(--ink);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        line-height: 1.55;
+        -webkit-font-smoothing: antialiased;
+      }
+      .wrap {
+        max-width: 780px;
+        margin: 0 auto;
+        padding: clamp(28px, 7vw, 88px) clamp(20px, 5vw, 40px) 64px;
+      }
+      .rule { height: 1px; background: var(--line); margin: 0 0 clamp(28px, 5vw, 44px); }
+      .eyebrow {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 11px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      h1 {
+        font-family: "Iowan Old Style", "Palatino Linotype", Palatino, Georgia, serif;
+        font-size: clamp(34px, 7vw, 58px);
+        line-height: 1.04;
+        letter-spacing: -0.02em;
+        font-weight: 600;
+        margin: 18px 0 0;
+        max-width: 16ch;
+      }
+      .lede {
+        font-size: clamp(15px, 1.7vw, 17.5px);
+        color: var(--muted);
+        margin: 20px 0 0;
+        max-width: 58ch;
+      }
+      .cta-row { display: flex; flex-wrap: wrap; gap: 12px; margin: 30px 0 0; align-items: center; }
+      a.button {
+        display: inline-flex;
+        align-items: center;
+        gap: 9px;
+        min-height: 46px;
+        padding: 0 20px;
+        background: var(--ink);
+        color: var(--paper);
+        text-decoration: none;
+        border: 1px solid var(--ink);
+        border-radius: 2px;
+        font-size: 14.5px;
+        font-weight: 550;
+        transition: background 140ms ease, color 140ms ease;
+      }
+      a.button:hover { background: var(--accent); border-color: var(--accent); }
+      a.button:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+      a.ghost {
+        display: inline-flex;
+        align-items: center;
+        min-height: 46px;
+        padding: 0 18px;
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        color: var(--ink);
+        text-decoration: none;
+        font-size: 14.5px;
+        background: var(--surface);
+      }
+      a.ghost:hover { border-color: var(--muted); }
+      a.ghost:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+      section { margin-top: clamp(34px, 6vw, 52px); }
+      h2 {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 10.5px;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+        color: var(--muted);
+        font-weight: 500;
+        margin: 0 0 14px;
+        padding-bottom: 10px;
+        border-bottom: 1px solid var(--line);
+      }
+      ul { margin: 0; padding-left: 18px; }
+      li { margin: 0 0 8px; font-size: 14.5px; color: var(--ink); }
+      li span { color: var(--muted); }
+      .note {
+        margin-top: 14px;
+        font-size: 13px;
+        color: var(--muted);
+        border-left: 2px solid var(--line);
+        padding-left: 12px;
+      }
+      code {
+        font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        font-size: 12.5px;
+        background: var(--surface);
+        border: 1px solid var(--line);
+        border-radius: 2px;
+        padding: 1px 5px;
+      }
+      footer {
+        margin-top: clamp(44px, 8vw, 72px);
+        padding-top: 18px;
+        border-top: 1px solid var(--line);
+        display: flex;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+        font-size: 12.5px;
+        color: var(--muted);
+      }
+      footer a { color: var(--muted); }
+      @media (prefers-reduced-motion: reduce) {
+        a.button { transition: none; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="rule"></div>
+      <div class="eyebrow">
+        <span>Mitemshub / Opportunity Engine</span>
+        <span>Static page · the app runs on a Worker</span>
+      </div>
+
+      <h1>Find the demand before it becomes a contract.</h1>
+      <p class="lede">
+        Moey collects advertised work, writes down where every row came from, and drafts the CV, letter and
+        email only from facts it can point at. When something is missing, it says so instead of inventing it.
+      </p>
+
+      <div class="cta-row">
+        <a class="button" href="https://site-fe76456ceb3740f9a330fdd592e29646.freebuff.page/">
+          Open the app
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+            <path d="M7 17 17 7M9 7h8v8" />
+          </svg>
+        </a>
+        <a class="ghost" href="https://github.com/MitemsHub/Moey">Read the repository</a>
+      </div>
+
+      <section>
+        <h2>Why this page is only a front door</h2>
+        <p class="lede" style="margin-top: 0">
+          GitHub Pages serves files and nothing else. Moey needs a database for opportunities, a server route for
+          drafting, and a sign-in so one account cannot read another's rows — so the working app runs on a Worker,
+          and this page points at it. Publishing the interface alone here would give you a page where every data
+          call fails, which is worse than a page that says what it is.
+        </p>
+      </section>
+
+      <section>
+        <h2>Install it as an app</h2>
+        <ul>
+          <li>Open the app, then <span>Chrome or Edge: use the install icon in the address bar, or ⋮ → Install Moey.</span></li>
+          <li>Safari on macOS: <span>Share → Add to Dock.</span></li>
+          <li>It runs in its own window. <span>The service worker keeps the shell available offline and never caches <code>/api/*</code>, because a stale opportunity that looks live is the thing this product exists to avoid.</span></li>
+        </ul>
+      </section>
+
+      <section>
+        <h2>What it will not do</h2>
+        <ul>
+          <li>Invent an employer, date, metric or contact address.</li>
+          <li>Send anything. Drafts open in your own mail client; you press send.</li>
+          <li>Claim a requirement it cannot evidence — that becomes a gap you can read.</li>
+        </ul>
+        <p class="note">
+          The linked build is the preview environment. Its data is separate from any production deployment.
+        </p>
+      </section>
+
+      <footer>
+        <span>Moey · Mitemshub Opportunity Engine</span>
+        <span><a href="https://github.com/MitemsHub/Moey">github.com/MitemsHub/Moey</a></span>
+      </footer>
+    </div>
+  </body>
+</html>
