@@ -3,6 +3,10 @@ name: Discovery scan
 # The 6-hourly scan lives here, not in the Worker, because Freebuff Sites does not
 # expose cron or queue bindings. The worker still owns dedupe and scoring; this job
 # only fetches and posts normalised items.
+#
+# A schedule that runs before its secrets exist used to fail every six hours and
+# mail the owner each time. It now checks for configuration first and skips with a
+# notice, which is the truth: nothing was scanned, and nothing is broken.
 on:
   schedule:
     - cron: '15 */6 * * *'
@@ -17,11 +21,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      - name: Check configuration
+        id: config
+        env:
+          APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
+          INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
+        run: |
+          if [ -z "$APP_ORIGIN" ] || [ -z "$INGEST_SECRET" ]; then
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::notice title=Discovery scan skipped::Set APP_ORIGIN and INGEST_SECRET as repository secrets to enable the scan. See README, Deploying."
+          else
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+            echo "Origin: $APP_ORIGIN"
+          fi
+
       - uses: actions/checkout@v4
+        if: steps.config.outputs.configured == 'true'
+
       - uses: actions/setup-node@v4
+        if: steps.config.outputs.configured == 'true'
         with:
           node-version: '24'
+
       - name: Run enabled sources
+        if: steps.config.outputs.configured == 'true'
         env:
           APP_ORIGIN: ${{ secrets.APP_ORIGIN }}
           INGEST_SECRET: ${{ secrets.INGEST_SECRET }}
