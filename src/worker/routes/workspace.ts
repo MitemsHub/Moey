@@ -22,9 +22,16 @@ workspace.get('/me', async (c) => {
     await seedWorkspace(db, owner, 'Mitemshub Opportunity Engine')
   } else {
     // Seeding only on first load meant an adapter added later never appeared for an
-    // existing workspace. INSERT OR IGNORE with deterministic ids is idempotent, so
-    // re-running it is how new sources (and their defaults) reach existing users.
-    const statements = await seedSources(db, owner)
+    // existing workspace. The registry is topped up here instead, but only for the
+    // adapters this workspace is missing: `INSERT OR IGNORE` counts as a written row
+    // even when it ignores, so re-sending all 18 on every /api/me call burned the
+    // daily write allowance without changing a single value.
+    const known = await db
+      .prepare(`SELECT adapter FROM sources WHERE owner_sub = ?`)
+      .bind(owner)
+      .all<{ adapter: string }>()
+    const present = new Set((known.results ?? []).map((row) => row.adapter))
+    const statements = await seedSources(db, owner, present)
     if (statements.length) await db.batch(statements)
   }
 

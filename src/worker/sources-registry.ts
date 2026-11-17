@@ -7,9 +7,17 @@ import { now } from './db'
  * `unconfigured` — visible in the registry with what they need, never silently
  * marked as working.
  */
-export async function seedSources(db: D1Database, ownerSub: string): Promise<D1PreparedStatement[]> {
+export async function seedSources(
+  db: D1Database,
+  ownerSub: string,
+  present: ReadonlySet<string> = new Set(),
+): Promise<D1PreparedStatement[]> {
   const stamp = now()
-  return ADAPTERS.map((adapter) => {
+  // `present` holds the adapter keys this workspace already has. INSERT OR IGNORE
+  // still costs a written row on every attempt, and this runs inside a GET
+  // (/api/me), so re-inserting the whole registry on each page load was spending
+  // the deployment's daily write allowance for nothing: 18 writes per app load.
+  return ADAPTERS.filter((adapter) => !present.has(adapter.key)).map((adapter) => {
     const boardList = DEFAULT_BOARDS[adapter.key] ?? []
     // A board-list adapter with boards configured IS runnable. Leaving it disabled
     // because it "needs configuration" made three working sources read as broken.
