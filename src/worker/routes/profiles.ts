@@ -7,6 +7,15 @@ import { rescorePipeline } from '../rescore'
 
 export const profiles = new Hono<AppContext>()
 
+// Sets are stored without order, so a save that only reorders them must not count as
+// a change and rewrite every row.
+function sameStrings(a: readonly string[], b: readonly string[]): boolean {
+  if (a.length !== b.length) return false
+  const left = [...a].sort()
+  const right = [...b].sort()
+  return left.every((value, index) => value === right[index])
+}
+
 async function withChildren(db: D1Database, owner: string, row: Record<string, unknown>) {
   const profileId = String(row.id)
   const skills = await db
@@ -124,32 +133,57 @@ profiles.patch('/:id', async (c) => {
     )
   }
 
+  // The editor sends skills and services on every save, so replacing them blindly
+  // rewrote (and for skills, deleted then re-inserted) every row even when the
+  // operator had changed nothing but a headline. Both lists are therefore compared
+  // with what is stored first, and only copied across when they actually differ.
+  let skillsChanged = false
   if (Array.isArray(body.skills)) {
     const skills = body.skills.map((s) => String(s).trim().toLowerCase()).filter(Boolean).slice(0, 60)
-    statements.push(db.prepare(`DELETE FROM profile_skills WHERE owner_sub = ? AND profile_id = ?`).bind(owner, profileId))
-    for (const skill of [...new Set(skills)]) {
-      statements.push(
-        db
-          .prepare(`INSERT INTO profile_skills (id, owner_sub, profile_id, skill, level) VALUES (?,?,?,?,3)`)
-          .bind(id(), owner, profileId, skill.slice(0, 60)),
-      )
+    const next = [...new Set(skills)]
+    const current = await db
+      .prepare(`SELECT skill FROM profile_skills WHERE owner_sub = ? AND profile_id = ?`)
+      .bind(owner, profileId)
+      .all<{ skill: string }>()
+    skillsChanged = !sameStrings((current.results ?? []).map((r) => r.skill), next)
+    if (skillsChanged) {
+      statements.push(db.prepare(`DELETE FROM profile_skills WHERE owner_sub = ? AND profile_id = ?`).bind(owner, profileId))
+      for (const skill of next) {
+        statements.push(
+          db
+            .prepare(`INSERT INTO profile_skills (id, owner_sub, profile_id, skill, level) VALUES (?,?,?,?,3)`)
+            .bind(id(), owner, profileId, skill.slice(0, 60)),
+        )
+      }
     }
   }
 
+  let servicesChanged = false
   if (Array.isArray(body.services)) {
-    statements.push(db.prepare(`DELETE FROM profile_services WHERE owner_sub = ? AND profile_id = ?`).bind(owner, profileId))
-    for (const entry of body.services.slice(0, 40)) {
-      const service = String(entry?.service ?? '').trim()
-      if (!service) continue
-      statements.push(
-        db
-          .prepare(`INSERT INTO profile_services (id, owner_sub, profile_id, service, summary, evidence) VALUES (?,?,?,?,?,?)`)
-          .bind(
-            id(), owner, profileId, service.slice(0, 120),
-            entry.summary ? String(entry.summary).slice(0, 600) : null,
-            entry.evidence ? String(entry.evidence).slice(0, 600) : null,
-          ),
-      )
+    const next = body.services
+      .slice(0, 40)
+      .map((entry) => ({
+        service: String(entry?.service ?? '').trim().slice(0, 120),
+        summary: entry?.summary ? String(entry.summary).slice(0, 600) : null,
+        evidence: entry?.evidence ? String(entry.evidence).slice(0, 600) : null,
+      }))
+      .filter((entry) => entry.service)
+    const current = await db
+      .prepare(`SELECT service, summary, evidence FROM profile_services WHERE owner_sub = ? AND profile_id = ?`)
+      .bind(owner, profileId)
+      .all<{ service: string; summary: string | null; evidence: string | null }>()
+    const signature = (row: { service: string; summary: string | null; evidence: string | null }) =>
+      `${row.service}\u0000${row.summary ?? ''}\u0000${row.evidence ?? ''}`
+    servicesChanged = !sameStrings((current.results ?? []).map(signature), next.map(signature))
+    if (servicesChanged) {
+      statements.push(db.prepare(`DELETE FROM profile_services WHERE owner_sub = ? AND profile_id = ?`).bind(owner, profileId))
+      for (const entry of next) {
+        statements.push(
+          db
+            .prepare(`INSERT INTO profile_services (id, owner_sub, profile_id, service, summary, evidence) VALUES (?,?,?,?,?,?)`)
+            .bind(id(), owner, profileId, entry.service, entry.summary, entry.evidence),
+        )
+      }
     }
   }
 
@@ -166,7 +200,7 @@ profiles.patch('/:id', async (c) => {
   // Filling a profile changes what every existing row *means*. Re-score the
   // pipeline so a stale 0 does not masquerade as a considered verdict.
   let rescored = 0
-  if (Array.isArray(body.skills) || Array.isArray(body.services)) {
+  if (sets.length || skillsChanged || servicesChanged) {
     rescored = await rescorePipeline(db, owner, {
       id: profileId,
       kind: full.kind,
