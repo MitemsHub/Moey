@@ -224,6 +224,10 @@ export interface OpportunityQuery {
   signal?: SignalType
   status?: OpportunityStatus
   source?: string
+  /** `only` keeps rows marked remote, or whose location says so. */
+  remote?: 'only'
+  /** Free-text match against the posting's location field. */
+  location?: string
   minScore?: number
   sort?: 'recent' | 'score' | 'deadline'
   page?: number

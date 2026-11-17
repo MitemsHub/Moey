@@ -124,6 +124,8 @@ function queryFromParams(params: URLSearchParams): OpportunityQuery {
     pipeline: (params.get('pipeline') as OpportunityQuery['pipeline']) ?? undefined,
     signal: (params.get('signal') as OpportunityQuery['signal']) ?? undefined,
     status: (params.get('status') as OpportunityQuery['status']) ?? undefined,
+    remote: params.get('remote') === 'only' ? 'only' : undefined,
+    location: params.get('location') ?? undefined,
     sort: (params.get('sort') as OpportunityQuery['sort']) ?? 'recent',
     page: Number(params.get('page') ?? 1) || 1,
   }
@@ -140,6 +142,7 @@ export function Opportunities() {
   )
   const [query, setQuery] = useState<OpportunityQuery>(initial)
   const [search, setSearch] = useState(initial.q ?? '')
+  const [place, setPlace] = useState(initial.location ?? '')
   const restored = useRef(false)
 
   useEffect(() => {
@@ -167,6 +170,18 @@ export function Opportunities() {
     }, 220)
     return () => clearTimeout(timer)
   }, [search])
+
+  useEffect(() => {
+    // Same debounce as the search box: a location is typed a letter at a time.
+    const timer = setTimeout(() => {
+      setQuery((q) => {
+        const nextPlace = place.trim() || undefined
+        if ((q.location ?? undefined) === nextPlace) return q
+        return { ...q, location: nextPlace, page: 1 }
+      })
+    }, 220)
+    return () => clearTimeout(timer)
+  }, [place])
 
   useEffect(() => {
     try {
@@ -230,7 +245,13 @@ export function Opportunities() {
     setParams(nextParams, { replace: true })
   }
 
-  const active = (query.q ? 1 : 0) + (query.pipeline ? 1 : 0) + (query.signal ? 1 : 0) + (query.status ? 1 : 0)
+  const active =
+    (query.q ? 1 : 0) +
+    (query.pipeline ? 1 : 0) +
+    (query.signal ? 1 : 0) +
+    (query.status ? 1 : 0) +
+    (query.remote ? 1 : 0) +
+    (query.location ? 1 : 0)
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
 
   return (
@@ -270,6 +291,36 @@ export function Opportunities() {
             <option value="business">Mitemshub business</option>
           </Select>
 
+          <Select
+            value={query.remote ?? ''}
+            onChange={(e) => update({ remote: (e.target.value || undefined) as OpportunityQuery['remote'] })}
+            className="w-[148px]"
+            aria-label="Work setting"
+          >
+            <option value="">Any setting</option>
+            <option value="only">Remote only</option>
+          </Select>
+
+          <div className="relative w-[172px]">
+            <Input
+              value={place}
+              onChange={(e) => setPlace(e.target.value)}
+              placeholder="City or country"
+              className="pr-8"
+              aria-label="Filter by location"
+            />
+            {place && (
+              <button
+                type="button"
+                onClick={() => setPlace('')}
+                aria-label="Clear location"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-faint hover:text-fg"
+              >
+                <X className="size-3.5" />
+              </button>
+            )}
+          </div>
+
           <Select value={query.signal ?? ''} onChange={(e) => update({ signal: (e.target.value || undefined) as OpportunityQuery['signal'] })} className="w-[142px]" aria-label="Kind">
             <option value="">All kinds</option>
             <option value="explicit">Advertised</option>
@@ -293,7 +344,7 @@ export function Opportunities() {
           </Select>
 
           {active > 0 && (
-            <Button size="sm" variant="ghost" onClick={() => { setSearch(''); setQuery({ sort: 'recent', page: 1 }); setParams({}, { replace: true }) }}>
+            <Button size="sm" variant="ghost" onClick={() => { setSearch(''); setPlace(''); setQuery({ sort: 'recent', page: 1 }); setParams({}, { replace: true }) }}>
               Clear {active}
             </Button>
           )}

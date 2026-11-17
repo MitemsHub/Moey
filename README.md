@@ -53,7 +53,7 @@ Sample rows would have meant inventing postings, which is the one thing this pro
 
 | Stage | What happens | Why it is built that way |
 | --- | --- | --- |
-| **Discover** | 18 adapters — Greenhouse, Lever, Ashby, Jobicy, Remotive, RemoteOK, Himalayas, Working Nomads, Arbeitnow, We Work Remotely, Freelancer, Hacker News, Mastodon, EU TED, SAM.gov, OSM business listings, dead-site checks, DataAnnotation — each with its own enable switch, config and health state. | Only platforms that permit reading. What was refused and why is written down in [`docs/SOURCES.md`](docs/SOURCES.md). |
+| **Discover** | 20 adapters — Greenhouse, Lever, Ashby, Jobicy, Remotive, RemoteOK, Himalayas, Working Nomads, Arbeitnow, We Work Remotely, Freelancer, Braintrust, CryptoJobsList, Hacker News, Mastodon, EU TED, SAM.gov, OSM business listings, dead-site checks, DataAnnotation — each with its own enable switch, config and health state. | Only platforms that permit reading. What was refused and why is written down in [`docs/SOURCES.md`](docs/SOURCES.md). |
 | **Normalise** | Every payload becomes one opportunity shape: title, organisation, location, body, URL, dates. | Downstream code should not know which platform a row came from. |
 | **Dedupe** | Three passes: content hash, canonical URL, and fuzzy title/organisation matching. | The same job reaches you through a board, an aggregator and a company page. You should see it once. |
 | **Score** | Skill vocabulary and rules first, model second — and only for rows that cleared the rule threshold. | A scan of 500 rows must not mean 500 model calls. |

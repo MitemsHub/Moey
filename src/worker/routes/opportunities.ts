@@ -14,6 +14,8 @@ interface ListQuery {
   signal?: string
   status?: string
   source?: string
+  remote?: string
+  location?: string
   minScore?: string
   sort?: string
   page?: string
@@ -48,6 +50,16 @@ opportunities.get('/', async (c) => {
   if (query.source) {
     where.push('o.source_id = ?')
     bind.push(query.source)
+  }
+  // "Remote" has to cover two truths: the flag the adapters set from the posting,
+  // and a location that literally reads Remote / Anywhere — manual entries and some
+  // feeds record only the second. Neither is inferred beyond what the row says.
+  if (query.remote === 'only') {
+    where.push("(o.remote = 1 OR o.location LIKE '%remote%')")
+  }
+  if (query.location) {
+    where.push('o.location LIKE ?')
+    bind.push(`%${query.location.replace(/[%_]/g, '')}%`)
   }
   if (query.minScore && !Number.isNaN(Number(query.minScore))) {
     where.push('o.score >= ?')

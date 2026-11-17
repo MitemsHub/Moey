@@ -93,6 +93,8 @@ Run with `node scripts/probe-sources.mjs`. Every row is a live request; nothing 
 | Arbeitnow | 200, 300 jobs | JSON | EU-weighted, feeds both pipelines |
 | We Work Remotely | 200, 25 feed items | RSS | Parse `Company: Role` titles |
 | **Freelancer.com** | 200, 10 projects | JSON | **A gig marketplace**: named buyer, budget range, explicit demand |
+| **Braintrust** | 200, 136 live rows | JSON | Contract network: 17 of 20 sampled rows were `freelance` (short or long), each with a USD budget. Public `/jobs/<id>/` page verified 200 |
+| **CryptoJobsList** | 200, 100 feed items | RSS | Web3 roles. No company element and no publish date, so the employer comes from the link slug and freshness stays null |
 | Jobicy | 200, 20 jobs | JSON | Already wired |
 | Mastodon #hiring | 200, 10 posts | JSON | Already wired; emerging signals only |
 | Greenhouse / Lever / Ashby | 1,559 verified boards | JSON | See below |
@@ -108,6 +110,10 @@ Run with `node scripts/probe-sources.mjs`. Every row is a live request; nothing 
 | Dice | `robots.txt` itself returns 403 | Blocks crawlers outright |
 | Remote.co | RSS 403 | Blocks automated access |
 | No Fluff Jobs | API 405 (POST-only), Hasjob 404 | Not usable as documented |
+
+Probed again on 2026-11-17 for the gig and Web3 request: `weworkremotely.com/categories/remote-contract-jobs.rss` answers 301 with no
+location, `web3.career` has no feed (404 on `/rss` and `/feed`), Dework's GraphQL endpoint answers 500 without a key, and both
+code4rena and Immunefi expose no public listings endpoint. None of those were wired.
 
 ## ATS board list — 1,559 verified tokens
 

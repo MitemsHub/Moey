@@ -10,3 +10,6 @@ dist
 .DS_Store
 *.log
 .secrets
+
+# Local dev-server and build logs (never committed).
+.logs

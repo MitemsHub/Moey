@@ -800,6 +800,125 @@ const freelancer: Adapter = {
 }
 
 /**
+ * CryptoJobsList — Web3 roles. Keyless public RSS of the 100 newest crypto listings.
+ *
+ * The feed publishes a role title, a description and a canonical public link, but no
+ * company element and no publish date. The employer is the tail of the link slug
+ * ("...-at-stellar-development-foundation"), so it is recovered from there and left
+ * null when the slug does not carry one. Freshness is left null rather than invented:
+ * a source that does not say when a role was posted must not be given a date.
+ */
+const cryptojobslist: Adapter = {
+  key: 'cryptojobslist',
+  label: 'CryptoJobsList (Web3)',
+  kind: 'feed',
+  pipeline: 'individual',
+  note: 'Keyless Web3 RSS: 100 newest crypto, blockchain and protocol roles, many contract or remote. No publish date in the feed.',
+  attribution: { label: 'CryptoJobsList', url: 'https://cryptojobslist.com' },
+  needs: null,
+  configHint: '{}',
+  async fetch(ctx) {
+    const xml = await fetchText('https://api.cryptojobslist.com/jobs.rss', { timeoutMs: ctx.timeoutMs })
+    return parseRss(xml).flatMap((item) => {
+      if (!item.title || !item.link) return []
+      const slug = item.link.split('/').filter(Boolean).pop() ?? item.link
+      const companySlug = /-at-([a-z0-9-]+)$/i.exec(slug)?.[1]
+      // The description opens with a "Tags: …" link row. It is navigation, not part of
+      // the posting, and it would otherwise become the excerpt on every row.
+      const text = item.text.replace(/^Tags:[\s\S]*?(\n|$)/, '').trim()
+      const remote = isRemote(`${item.title} ${text}`)
+      return [{
+        externalId: `cryptojobslist:${slug}`,
+        title: item.title,
+        org: companySlug ? titleFromSlug(companySlug) : null,
+        url: item.link,
+        location: remote ? 'Remote' : null,
+        remote: remote ? true : null,
+        text,
+        tags: ['web3', 'crypto'],
+        signal: 'explicit',
+      } satisfies RawOpportunity]
+    })
+  },
+}
+
+/**
+ * Braintrust — a talent network built around contract work, which is why it is the
+ * first source here with `kind: 'gig'` besides Freelancer.com. Keyless public list.
+ *
+ * Most rows are freelance (short or long contract) with a stated USD budget and a
+ * timezone list; some are direct hires. The API exposes an id and no public URL, so
+ * the canonical /jobs/<id>/ page is used, which was checked to resolve. Location is
+ * only asserted as remote when the row says so; a listed city is repeated verbatim
+ * and not treated as an on-site requirement, because it does not state one.
+ */
+const braintrust: Adapter = {
+  key: 'braintrust',
+  label: 'Braintrust (contract)',
+  kind: 'gig',
+  pipeline: 'individual',
+  note: 'Keyless contract marketplace API. Mostly freelance engagements with a stated budget and timezone list.',
+  attribution: { label: 'Braintrust', url: 'https://www.usebraintrust.com' },
+  needs: null,
+  configHint: '{ "pages": 3 }',
+  async fetch(ctx) {
+    // The list endpoint serves 20 rows a page and ignores larger limits (136 rows live
+    // on 2026-11-17), so breadth comes from paging. Three pages by default keeps one
+    // scan bounded: every newly inserted row costs about a dozen writes of its own.
+    const pages = Math.min(Math.max(Number(ctx.config.pages ?? 3), 1), 7)
+    const rows: Record<string, unknown>[] = []
+    for (let page = 1; page <= pages; page++) {
+      const data = await fetchJson<{ results?: Record<string, unknown>[] }>(
+        `https://app.usebraintrust.com/api/jobs/?limit=20&page=${page}`,
+        { timeoutMs: ctx.timeoutMs },
+      )
+      rows.push(...(data.results ?? []))
+    }
+    return rows.flatMap((job) => {
+      const title = String(job.title ?? '').trim()
+      const jobId = job.id
+      if (!title || !jobId) return []
+      const employer = (job.employer as { name?: string } | undefined)?.name ?? null
+      const locations = Array.isArray(job.locations)
+        ? (job.locations as { location?: string }[]).map((l) => String(l.location ?? '')).filter(Boolean)
+        : []
+      const timezones = Array.isArray(job.timezones) ? (job.timezones as unknown[]).map(String) : []
+      const skills = Array.isArray(job.main_skills)
+        ? (job.main_skills as { name?: string }[]).map((s) => String(s.name ?? '')).filter(Boolean)
+        : []
+      const min = Number(job.budget_minimum_usd) || undefined
+      const max = Number(job.budget_maximum_usd) || undefined
+      const payment = String(job.payment_type ?? '')
+      const engagement = String(job.job_type ?? '')
+      const hours = Number(job.expected_hours_per_week) || undefined
+      const facts = [
+        employer ? `Employer: ${employer}.` : '',
+        engagement ? `Engagement: ${engagement.replace(/_/g, ' ')}.` : '',
+        payment ? `Budget quoted ${payment}.` : '',
+        hours ? `Expected ${hours} hours per week.` : '',
+        locations.length ? `Locations listed: ${locations.join('; ')}.` : 'No location listed.',
+        timezones.length ? `Timezones: ${timezones.join(', ')}.` : '',
+        skills.length ? `Skills: ${skills.join(', ')}.` : '',
+      ].filter(Boolean)
+      return [{
+        externalId: `braintrust:${jobId}`,
+        title,
+        org: employer,
+        url: `https://app.usebraintrust.com/jobs/${jobId}/`,
+        location: locations[0] ?? (timezones.length ? timezones.join(', ') : null),
+        remote: isRemote(`${title} ${locations.join(' ')}`) ? true : null,
+        publishedAt: toEpoch(job.created),
+        deadline: toEpoch(job.deadline),
+        compensation: min || max ? { min, max, currency: 'USD' } : null,
+        tags: [engagement.replace(/_/g, '-'), payment, hours ? `${hours}h-week` : ''].filter(Boolean),
+        text: facts.join(' '),
+        signal: 'explicit',
+      } satisfies RawOpportunity]
+    })
+  },
+}
+
+/**
  * OpenStreetMap: businesses that exist, have a name, and have no website recorded.
  *
  * This is the "sell ourselves" source. A restaurant with no `website` tag is a
@@ -1112,7 +1231,8 @@ function hashish(input: string): string {
 
 export const ADAPTERS: Adapter[] = [
   greenhouse, lever, ashby,
-  jobicy, remotive, remoteok, himalayas, workingNomads, arbeitnow, weWorkRemotely, freelancer,
+  jobicy, remotive, remoteok, himalayas, workingNomads, arbeitnow, weWorkRemotely,
+  freelancer, braintrust, cryptojobslist,
   hackerNews, mastodon, ted, sam,
   osm, osmDeadSites, dataAnnotation,
 ]
