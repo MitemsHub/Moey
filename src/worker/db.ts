@@ -280,6 +280,7 @@ export function mapOpportunity(r: Row) {
     sourceId: str(r.source_id),
     sourceLabel: str(r.source_label),
     sourceAdapter: str(r.source_adapter),
+    sourceKind: str(r.source_kind) as 'ats' | 'tender' | 'feed' | 'community' | 'gig' | 'directory' | 'manual' | null,
     location: str(r.location),
     remote: bool(r.remote),
     excerpt: (r.excerpt as string) ?? '',
@@ -346,6 +347,7 @@ export const OPP_SELECT = `
   SELECT o.*,
     s.label AS source_label,
     s.adapter AS source_adapter,
+    s.kind AS source_kind,
     substr(replace(replace(o.body, char(10), ' '), char(13), ' '), 1, 240) AS excerpt,
     (SELECT json_group_array(sk.skill) FROM opportunity_skills sk
        WHERE sk.opportunity_id = o.id AND sk.owner_sub = o.owner_sub) AS skills_json

@@ -112,7 +112,9 @@ function rememberedQuery(): OpportunityQuery | null {
     const raw = localStorage.getItem(QUERY_KEY)
     const parsed = raw ? (JSON.parse(raw) as OpportunityQuery) : null
     if (!parsed || typeof parsed !== 'object') return null
-    return { ...parsed, page: Math.max(1, Number(parsed.page) || 1) }
+    // A list remembered before the work-type filter existed has no preference, so it
+    // opens on the same default as a first visit instead of back on everything.
+    return { ...parsed, work: parsed.work ?? 'gig', page: Math.max(1, Number(parsed.page) || 1) }
   } catch {
     return null
   }
@@ -126,6 +128,8 @@ function queryFromParams(params: URLSearchParams): OpportunityQuery {
     status: (params.get('status') as OpportunityQuery['status']) ?? undefined,
     remote: params.get('remote') === 'only' ? 'only' : undefined,
     location: params.get('location') ?? undefined,
+    // Gigs and contract work lead: that is what this seat is looking for first.
+    work: (params.get('work') as OpportunityQuery['work']) ?? 'gig',
     sort: (params.get('sort') as OpportunityQuery['sort']) ?? 'recent',
     page: Number(params.get('page') ?? 1) || 1,
   }
@@ -138,7 +142,7 @@ export function Opportunities() {
   // The URL wins when it carries a query; otherwise the last list you were on is
   // restored, so a plain visit to /opportunities does not silently reset to page 1.
   const [initial] = useState<OpportunityQuery>(() =>
-    params.toString() ? queryFromParams(params) : (rememberedQuery() ?? { sort: 'recent', page: 1 }),
+    params.toString() ? queryFromParams(params) : (rememberedQuery() ?? { work: 'gig', sort: 'recent', page: 1 }),
   )
   const [query, setQuery] = useState<OpportunityQuery>(initial)
   const [search, setSearch] = useState(initial.q ?? '')
@@ -251,7 +255,8 @@ export function Opportunities() {
     (query.signal ? 1 : 0) +
     (query.status ? 1 : 0) +
     (query.remote ? 1 : 0) +
-    (query.location ? 1 : 0)
+    (query.location ? 1 : 0) +
+    (query.work ? 1 : 0)
   const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1
 
   return (
@@ -289,6 +294,17 @@ export function Opportunities() {
             <option value="">Both pipelines</option>
             <option value="individual">Individual</option>
             <option value="business">Mitemshub business</option>
+          </Select>
+
+          <Select
+            value={query.work ?? ''}
+            onChange={(e) => update({ work: (e.target.value || undefined) as OpportunityQuery['work'] })}
+            className="w-[176px]"
+            aria-label="Work type"
+          >
+            <option value="">All work · gigs first</option>
+            <option value="gig">Gigs &amp; contract</option>
+            <option value="job">Salaried jobs</option>
           </Select>
 
           <Select
@@ -408,6 +424,11 @@ export function Opportunities() {
                           )}
                           <span aria-hidden>·</span>
                           <span className="truncate">{item.org ?? 'Organisation not stated'}</span>
+                          {(item.sourceKind === 'gig' || item.sourceKind === 'tender') && (
+                            <span className="shrink-0 rounded-[2px] border border-line px-1 text-[9.5px] uppercase tracking-wide text-muted">
+                              {item.sourceKind === 'gig' ? 'gig' : 'contract'}
+                            </span>
+                          )}
                           {item.remote && (
                             <span className="hidden shrink-0 rounded-[2px] bg-surface-2 px-1 text-[9.5px] uppercase tracking-wide sm:inline-block">
                               remote
