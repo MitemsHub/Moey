@@ -11,6 +11,13 @@ on:
   schedule:
     - cron: '15 */6 * * *'
   workflow_dispatch:
+  # A change to the scanner or this file runs it once, so the edit is proved by the
+  # thing it changed. With no secrets configured it exercises the skip path only.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/discover.yml'
+      - 'scripts/discover.mjs'
 
 concurrency:
   group: discovery
