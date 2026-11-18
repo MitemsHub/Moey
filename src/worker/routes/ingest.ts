@@ -8,6 +8,7 @@ import { id, now, requireDb } from '../db'
 import type { AppContext } from '../env'
 import { ingest, runSource } from '../ingest'
 import type { IngestCounts } from '../ingest'
+import { seedSources } from '../sources-registry'
 
 export const ingestRoute = new Hono<AppContext>()
 
@@ -74,6 +75,21 @@ ingestRoute.get('/plan', async (c) => {
     .prepare(`SELECT id, adapter, pipeline, config_json FROM sources WHERE enabled = 1 ORDER BY adapter`)
     .all<{ id: string; adapter: string; pipeline: string; config_json: string }>()
 
+  // What the rows a scan would write today look like, in the same terms the app's
+  // work filter uses. A run that reports "ok, 0 inserted" because every row was a
+  // duplicate is otherwise indistinguishable from one that added nothing to the
+  // gig view, so the runner gets the totals it is actually trying to move.
+  const totals = await c
+    .get('db')
+    .prepare(
+      `SELECT COUNT(*) AS all_rows,
+         SUM(CASE WHEN o.work_type = 'gig' OR s.kind IN ('gig','tender') THEN 1 ELSE 0 END) AS gig,
+         SUM(CASE WHEN COALESCE(o.work_type, '') <> 'gig' AND s.kind IN ('ats','feed') THEN 1 ELSE 0 END) AS job
+       FROM opportunities o
+       LEFT JOIN sources s ON s.id = o.source_id AND s.owner_sub = o.owner_sub`,
+    )
+    .first<{ all_rows: number; gig: number | null; job: number | null }>()
+
   return privateJson(c, {
     sources: (rows.results ?? []).map((row) => ({
       id: row.id,
@@ -81,6 +97,11 @@ ingestRoute.get('/plan', async (c) => {
       pipeline: row.pipeline,
       configured: row.config_json !== '{}',
     })),
+    counts: {
+      all: Number(totals?.all_rows ?? 0),
+      gig: Number(totals?.gig ?? 0),
+      job: Number(totals?.job ?? 0),
+    },
   })
 })
 
@@ -99,15 +120,49 @@ ingestRoute.post('/run', async (c) => {
   if (!body?.source) return privateJson(c, { error: 'Expected { source }.' }, 400)
 
   const db = c.get('db')
-  const row = await db
-    .prepare(`SELECT id, owner_sub FROM sources WHERE (id = ? OR adapter = ?) AND enabled = 1`)
-    .bind(body.source, body.source)
-    .first<{ id: string; owner_sub: string }>()
-  if (!row) return privateJson(c, { error: `No enabled source “${body.source}”.` }, 404)
+  let rows = await enabledSources(db, body.source)
 
-  const counts = await runSource(c.env, db, row.owner_sub, row.id, { timeoutMs: 20_000 })
-  return privateJson(c, { source: row.id, ...counts })
+  if (!rows.length) {
+    // A shipped adapter only entered the registry through a signed-in page load
+    // (/api/me), so the external runner could not scan a new source until the owner
+    // happened to open the app. Top the registry up for the workspaces that already
+    // exist, then look for the source again. This writes only rows that are missing.
+    await registerMissingAdapters(db)
+    rows = await enabledSources(db, body.source)
+  }
+  if (!rows.length) return privateJson(c, { error: `No enabled source “${body.source}”.` }, 404)
+
+  // One adapter per call, as before, but a workspace per registry row: the response
+  // keeps its original single-object shape unless there is more than one workspace.
+  const results: ({ source: string } & IngestCounts)[] = []
+  for (const row of rows) {
+    const counts = await runSource(c.env, db, row.owner_sub, row.id, { timeoutMs: 20_000 })
+    results.push({ source: row.id, ...counts })
+  }
+  return privateJson(c, results.length === 1 ? results[0] : { runs: results })
 })
+
+async function enabledSources(db: D1Database, key: string) {
+  const rows = await db
+    .prepare(`SELECT id, owner_sub FROM sources WHERE (id = ? OR adapter = ?) AND enabled = 1`)
+    .bind(key, key)
+    .all<{ id: string; owner_sub: string }>()
+  return rows.results ?? []
+}
+
+/** Adds any registered adapter a workspace is missing, exactly as /api/me does. */
+async function registerMissingAdapters(db: D1Database): Promise<void> {
+  const owners = await db.prepare(`SELECT DISTINCT owner_sub FROM sources`).all<{ owner_sub: string }>()
+  for (const owner of owners.results ?? []) {
+    const known = await db
+      .prepare(`SELECT adapter FROM sources WHERE owner_sub = ?`)
+      .bind(owner.owner_sub)
+      .all<{ adapter: string }>()
+    const present = new Set((known.results ?? []).map((row) => row.adapter))
+    const statements = await seedSources(db, owner.owner_sub, present)
+    if (statements.length) await db.batch(statements)
+  }
+}
 
 /** Returns a response when the caller may not proceed, or null when it may. */
 function denied(c: Context<AppContext>): Response | null {
