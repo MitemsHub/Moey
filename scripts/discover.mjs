@@ -26,11 +26,40 @@ if (!DRY && (!ORIGIN || !SECRET)) {
 
 const auth = { authorization: `Bearer ${SECRET}`, 'content-type': 'application/json' }
 
-async function call(path, init = {}) {
-  const response = await fetch(`${ORIGIN}${path}`, { ...init, headers: auth })
-  const payload = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(`${path} → ${response.status} ${payload.error ?? ''}`.trim())
-  return payload
+/** 5xx and 429 are the platform answering, not the request being wrong. */
+const TRANSIENT = new Set([429, 500, 502, 503, 504])
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * A scan run was measured failing with the host's 502 roughly one time in four
+ * (2026-11-18), at the same depth that succeeded seconds later, so this retries those
+ * answers and dropped connections. It is safe to repeat a run: ingest dedupes on the
+ * source's own id, so a run that died after writing some rows only re-reads them.
+ * Client errors (401, 404, 400) are reported immediately — retrying cannot fix them.
+ */
+async function call(path, init = {}, attempts = 3) {
+  let lastError = null
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    let response = null
+    try {
+      response = await fetch(`${ORIGIN}${path}`, { ...init, headers: auth })
+    } catch (error) {
+      lastError = error
+    }
+    if (response) {
+      const payload = await response.json().catch(() => ({}))
+      if (response.ok) return payload
+      const message = `${path} → ${response.status} ${payload.error ?? ''}`.trim()
+      if (!TRANSIENT.has(response.status)) throw new Error(message)
+      lastError = new Error(message)
+    }
+    if (attempt < attempts) {
+      const waitMs = attempt * 3000
+      console.error(`${lastError?.message ?? 'request failed'} — retrying in ${waitMs / 1000}s`)
+      await sleep(waitMs)
+    }
+  }
+  throw lastError ?? new Error(`${path} failed`)
 }
 
 const { sources } = await call('/api/ingest/plan')

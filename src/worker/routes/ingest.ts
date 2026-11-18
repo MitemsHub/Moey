@@ -116,8 +116,14 @@ ingestRoute.post('/run', async (c) => {
   const blocked = denied(c)
   if (blocked) return blocked
 
-  const body = (await c.req.json().catch(() => null)) as { source?: string } | null
+  const body = (await c.req.json().catch(() => null)) as
+    | { source?: string; config?: Record<string, unknown> }
+    | null
   if (!body?.source) return privateJson(c, { error: 'Expected { source }.' }, 400)
+  // Optional per-call overrides, merged over the stored config: the runner needs a way
+  // to test a depth or a keyword without editing the source row for every attempt.
+  const override =
+    body.config && typeof body.config === 'object' && !Array.isArray(body.config) ? body.config : undefined
 
   const db = c.get('db')
   let rows = await enabledSources(db, body.source)
@@ -136,7 +142,7 @@ ingestRoute.post('/run', async (c) => {
   // keeps its original single-object shape unless there is more than one workspace.
   const results: ({ source: string } & IngestCounts)[] = []
   for (const row of rows) {
-    const counts = await runSource(c.env, db, row.owner_sub, row.id, { timeoutMs: 20_000 })
+    const counts = await runSource(c.env, db, row.owner_sub, row.id, { timeoutMs: 20_000, config: override })
     results.push({ source: row.id, ...counts })
   }
   return privateJson(c, results.length === 1 ? results[0] : { runs: results })
