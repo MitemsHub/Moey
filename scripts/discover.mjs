@@ -19,6 +19,22 @@ const ORIGIN = (process.env.APP_ORIGIN || '').replace(/\/$/, '')
 const SECRET = process.env.INGEST_SECRET || ''
 const DRY = process.argv.includes('--dry')
 
+/**
+ * How many new rows one scan may store in total.
+ *
+ * Every stored row costs several database writes (the opportunity, its matched
+ * skills, its import line), and the host pauses the whole site once the day's write
+ * allowance is spent. Four scans a day at 150 rows leaves room for about 600 new
+ * rows daily, well inside the allowance at the rate the panel billed on 2026-11-18
+ * (1,153 inserts, 13,185 writes). A cold sweep of a multi-board ATS tries to store
+ * several thousand rows in one call, which is what caused the pause this fixes.
+ *
+ * The Worker caps per call and the runner stops between calls, so neither half can
+ * overspend on its own. Raise ROW_BUDGET only with the day's write total in view:
+ * a scan cannot spend what a later scan already used.
+ */
+const ROW_BUDGET = Math.max(1, Math.floor(Number(process.env.ROW_BUDGET) || 150))
+
 if (!DRY && (!ORIGIN || !SECRET)) {
   console.error('APP_ORIGIN and INGEST_SECRET must be set (or pass --dry).')
   process.exit(1)
@@ -106,15 +122,28 @@ if (!paused && !sources.length) {
 
 let inserted = 0
 let failures = 0
+let skipped = 0
 for (const source of sources) {
   if (DRY) {
     console.log(`would run ${source.adapter} (${source.id})`)
     continue
   }
+  const remaining = ROW_BUDGET - inserted
+  if (remaining <= 0) {
+    skipped = sources.length - sources.indexOf(source)
+    break
+  }
   try {
-    const counts = await call('/api/ingest/run', { method: 'POST', body: JSON.stringify({ source: source.id }) })
+    const counts = await call('/api/ingest/run', {
+      method: 'POST',
+      body: JSON.stringify({ source: source.id, max: remaining }),
+    })
     inserted += counts.inserted
-    console.log(`${source.adapter}: ${counts.found} found, ${counts.inserted} new, ${counts.duplicates} duplicates`)
+    console.log(
+      `${source.adapter}: ${counts.found} found, ${counts.inserted} new, ${counts.duplicates} duplicates` +
+        (counts.truncated ? ' (stopped at the row budget)' : ''),
+    )
+    if (counts.truncated) skipped = sources.length - sources.indexOf(source) - 1
   } catch (error) {
     if (error instanceof HostPaused) {
       notice(
@@ -129,5 +158,13 @@ for (const source of sources) {
   }
 }
 
-if (!DRY && !paused) console.log(`done: ${inserted} new rows, ${failures} source(s) failed`)
+if (!DRY && !paused) {
+  console.log(`done: ${inserted} new rows, ${failures} source(s) failed`)
+  if (skipped > 0) {
+    console.log(
+      `row budget of ${ROW_BUDGET} reached; ${skipped} source(s) left for the next scan. ` +
+        'Scans start with the least recently run source, so the remainder is not starved.',
+    )
+  }
+}
 if (!paused && failures && failures === sources.length) process.exitCode = 1

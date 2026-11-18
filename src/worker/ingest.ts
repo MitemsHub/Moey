@@ -12,6 +12,8 @@ export interface IngestCounts {
   duplicates: number
   errors: number
   messages: string[]
+  /** True when the call stopped at its insert cap with rows left unexamined. */
+  truncated?: boolean
 }
 
 interface SourceRow {
@@ -70,7 +72,15 @@ export async function ingest(
   source: SourceRow,
   items: RawOpportunity[],
   counts: IngestCounts,
+  options: { maxInserts?: number } = {},
 ): Promise<void> {
+  // Every inserted row costs an opportunity, an activity line and up to twelve skill
+  // rows, and the deployment pauses once the day's write allowance is gone. A cold
+  // sweep of one multi-board ATS can write more than the whole allowance in a single
+  // call, so the bound has to live here, where the inserts are built, rather than in
+  // the runner that only sees one source at a time. The cap counts new rows only;
+  // duplicates are free to re-read, so a warm scan is never cut short.
+  const limit = options.maxInserts ?? null
   const adapter = getAdapter(source.adapter)
   const pipeline = (source.pipeline === 'business' ? 'business' : 'individual') as 'individual' | 'business'
   const profiles = await profilesFor(db, ownerSub)
@@ -109,6 +119,10 @@ export async function ingest(
   const stamp = now()
 
   for (const raw of items) {
+    if (limit !== null && counts.inserted >= limit) {
+      counts.truncated = true
+      break
+    }
     counts.found++
     const n = normalise(raw, {
       pipeline,
@@ -248,7 +262,7 @@ export async function runSource(
   db: D1Database,
   ownerSub: string,
   sourceId: string,
-  extra: { config?: Record<string, unknown>; timeoutMs?: number } = {},
+  extra: { config?: Record<string, unknown>; timeoutMs?: number; maxInserts?: number } = {},
 ): Promise<IngestCounts> {
   const runId = id()
   const startedAt = now()
@@ -278,7 +292,7 @@ export async function runSource(
       signal: adapter.kind === 'community' ? 'emerging' : 'explicit',
       timeoutMs: extra.timeoutMs ?? 12_000,
     })
-    await ingest(env, db, ownerSub, source, items, counts)
+    await ingest(env, db, ownerSub, source, items, counts, { maxInserts: extra.maxInserts })
     if (counts.errors > 0) status = 'partial'
   } catch (error) {
     status = 'failed'

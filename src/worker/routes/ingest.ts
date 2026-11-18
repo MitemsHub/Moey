@@ -73,7 +73,10 @@ ingestRoute.get('/plan', async (c) => {
   if (blocked) return blocked
 
   const rows = await c.get('db')
-    .prepare(`SELECT id, adapter, pipeline, config_json FROM sources WHERE enabled = 1 ORDER BY adapter`)
+    .prepare(
+      `SELECT id, adapter, pipeline, config_json FROM sources WHERE enabled = 1
+       ORDER BY COALESCE(last_run_at, 0) ASC, adapter`,
+    )
     .all<{ id: string; adapter: string; pipeline: string; config_json: string }>()
 
   // What the rows a scan would write today look like, in the same terms the app's
@@ -116,19 +119,30 @@ ingestRoute.get('/plan', async (c) => {
  * One source per call on purpose: a large board (Greenhouse with eight employers
  * returns ~2,800 jobs and takes about a minute) would blow a single invocation's
  * budget, and a partial run reported as complete is worse than two calls.
+ *
+ * An optional `max` caps how many new rows this call may write. A cold sweep of a
+ * multi-board ATS is the one call that can spend the deployment's whole daily write
+ * allowance (Greenhouse returned 786 roles in one measured pass), and the host pauses
+ * the site when that happens. The runner passes its remaining budget here; without
+ * it the call is unbounded, as before.
  */
 ingestRoute.post('/run', async (c) => {
   const blocked = denied(c)
   if (blocked) return blocked
 
   const body = (await c.req.json().catch(() => null)) as
-    | { source?: string; config?: Record<string, unknown> }
+    | { source?: string; config?: Record<string, unknown>; max?: number }
     | null
   if (!body?.source) return privateJson(c, { error: 'Expected { source }.' }, 400)
   // Optional per-call overrides, merged over the stored config: the runner needs a way
   // to test a depth or a keyword without editing the source row for every attempt.
   const override =
     body.config && typeof body.config === 'object' && !Array.isArray(body.config) ? body.config : undefined
+  // Clamped so a mistyped runner argument cannot ask for an unbounded call again.
+  const max =
+    typeof body.max === 'number' && Number.isFinite(body.max)
+      ? Math.min(2000, Math.max(1, Math.floor(body.max)))
+      : undefined
 
   const db = c.get('db')
   let rows = await enabledSources(db, body.source)
@@ -147,7 +161,11 @@ ingestRoute.post('/run', async (c) => {
   // keeps its original single-object shape unless there is more than one workspace.
   const results: ({ source: string } & IngestCounts)[] = []
   for (const row of rows) {
-    const counts = await runSource(c.env, db, row.owner_sub, row.id, { timeoutMs: 20_000, config: override })
+    const counts = await runSource(c.env, db, row.owner_sub, row.id, {
+      timeoutMs: 20_000,
+      config: override,
+      maxInserts: max,
+    })
     results.push({ source: row.id, ...counts })
   }
   return privateJson(c, results.length === 1 ? results[0] : { runs: results })

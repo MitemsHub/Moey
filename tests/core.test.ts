@@ -6,6 +6,7 @@ import { workClause } from '../src/worker/workFilter'
 import { workMarker } from '../src/shared/work'
 import { canonicalTitle, hash, normalise, similarity } from '../src/worker/dedupe'
 import { extractSkills, scoreByRules } from '../src/worker/qualify'
+import { ingest } from '../src/worker/ingest'
 
 const defaults = { pipeline: 'individual' as const, signal: 'explicit' as const, adapter: 'test' }
 
@@ -263,6 +264,68 @@ describe('prospect scoring', () => {
 
     expect(result.score).toBe(25)
     expect(result.rationale).toContain('no web, software or data service')
+  })
+})
+
+describe('ingest write budget', () => {
+  /** Just enough of D1 to record which statements a run would execute. */
+  function fakeDb() {
+    const written: string[] = []
+    const stmt = (sql: string): Record<string, unknown> => ({
+      sql,
+      bind: () => stmt(sql),
+      all: async () => ({ results: [] }),
+      first: async () => null,
+      run: async () => ({}),
+    })
+    const db = {
+      prepare: (sql: string) => stmt(sql),
+      batch: async (list: { sql: string }[]) => {
+        for (const entry of list) written.push(entry.sql)
+        return []
+      },
+    }
+    return { db: db as unknown as D1Database, written }
+  }
+
+  // Titles differ on purpose: near-identical ones are merged by the fuzzy dedupe,
+  // which would make this a test of dedupe rather than of the write cap.
+  const titles = [
+    'Kubernetes platform engineer',
+    'Pastry chef for a harbour bakery',
+    'Marine biologist, coral survey',
+    'Tax accountant, small business desk',
+    'Stage lighting designer',
+  ]
+  const items = titles.map((title, i) => ({
+    externalId: `row-${i}`,
+    title,
+    url: `https://example.test/${i}`,
+    body: `Row ${i} body about React and SQL.`,
+  }))
+  const counts = () => ({ found: 0, inserted: 0, duplicates: 0, errors: 0, messages: [] as string[] })
+  const source = { id: 'src_test', adapter: 'test', pipeline: 'individual', config_json: '{}' }
+
+  test('stops at the insert cap and says so', async () => {
+    const { db, written } = fakeDb()
+    const result = counts()
+    await ingest({} as never, db, 'owner', source, items, result, { maxInserts: 2 })
+
+    expect(result.inserted).toBe(2)
+    expect(result.found).toBe(2)
+    expect(result.truncated).toBe(true)
+    expect(written.filter((sql) => sql.includes('INSERT INTO opportunities'))).toHaveLength(2)
+    expect(written.filter((sql) => sql.includes('INSERT INTO activities'))).toHaveLength(2)
+  })
+
+  test('writes every new row when no cap is set', async () => {
+    const { db, written } = fakeDb()
+    const result = counts()
+    await ingest({} as never, db, 'owner', source, items, result)
+
+    expect(result.inserted).toBe(5)
+    expect(result.truncated).toBeUndefined()
+    expect(written.filter((sql) => sql.includes('INSERT INTO opportunities'))).toHaveLength(5)
   })
 })
 

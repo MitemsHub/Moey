@@ -173,6 +173,12 @@ and cost little. If a sweep exhausts the allowance, the host pauses the site unt
 panel, and data is kept. A scheduled run that meets the pause writes a notice and exits successfully instead of
 failing, so the owner is not mailed every six hours about a wait only the reset can end.
 
+A scan also stops itself before that point. It stores at most 150 new rows per run by default, a cap the Worker
+enforces per source call and the runner enforces across calls, and it starts with the least recently scanned source
+so the remainder is not starved. A cold sweep of a wide ATS therefore spreads over several scans instead of
+spending the day's allowance in one. `ROW_BUDGET` raises or lowers the cap; raise it with the day's total writes in
+view, because a scan cannot spend what an earlier scan already used.
+
 ## Hosting
 
 **Preview: <https://site-fe76456ceb3740f9a330fdd592e29646.freebuff.page>**
