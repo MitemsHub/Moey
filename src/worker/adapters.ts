@@ -628,6 +628,11 @@ const arbeitnow: Adapter = {
           publishedAt: toEpoch(job.created_at),
           text: stripHtml(job.description as string),
           tags: Array.isArray(job.tags) ? job.tags.map(String) : undefined,
+          // Arbeitnow publishes a job_types array that mixes seniority with the
+          // contract form (["Experienced","contract"], ["Contract"]). Reading the
+          // tokens it actually printed keeps the contract ones out of the salaried
+          // view at no extra request cost.
+          work: declaredWork(job.job_types),
         })
       }
     }
@@ -794,8 +799,17 @@ const freelancer: Adapter = {
     // One page of 40 was the original shape and it capped the whole gig view. The
     // endpoint takes limit=100 and a real offset (verified 2026-11-18: offsets 0, 100,
     // 200 and 300 returned 399 distinct projects), so breadth comes from paging.
-    const perPage = Math.min(Math.max(Number(ctx.config.perPage ?? 50), 1), 100)
-    const pages = Math.min(Math.max(Number(ctx.config.pages ?? 3), 1), 8)
+    //
+    // Limit and depth are deliberately bounded. The live endpoint reports
+    // total_count 4,285 active projects, but only ~48% of the newest 500 are
+    // development work and an older project is usually a lead that has already gone
+    // unanswered for a week. Paging the whole board would be ~11,000 database rows on
+    // its own — more than the deployment's entire daily write allowance — so the
+    // default is the newest 500: the 150 that used to be read, plus roughly 350 that
+    // were reachable all along. That first sweep costs about 900 writes; a steady
+    // day of new postings after it costs a few hundred.
+    const perPage = Math.min(Math.max(Number(ctx.config.perPage ?? 100), 1), 100)
+    const pages = Math.min(Math.max(Number(ctx.config.pages ?? 5), 1), 8)
     const projects: Record<string, unknown>[] = []
     for (let page = 0; page < pages; page++) {
       const data = await fetchJson<{ result?: { projects?: Record<string, unknown>[] } }>(
@@ -804,8 +818,11 @@ const freelancer: Adapter = {
       )
       const rows = data.result?.projects ?? []
       projects.push(...rows)
-      // A short page means there is nothing after it; stop instead of asking again.
-      if (rows.length < perPage) break
+      // Only an empty page ends the board. Asking for 100 and being handed 99 is
+      // routine on this endpoint (it happened on 2 of 3 pages on 2026-11-18), and
+      // treating that as the last page silently capped this source at ~300 projects
+      // however deep the paging was configured.
+      if (!rows.length) break
     }
     return projects.flatMap((project) => {
       const title = String(project.title ?? '').trim()

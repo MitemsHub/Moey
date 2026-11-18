@@ -224,3 +224,25 @@ The gig view includes `work_type = 'gig'` rows, the salaried view excludes them,
 `CONTRACT` rather than `JOB`. Rows stored before the column existed are not rewritten by the migration;
 the next scan of those feeds sets the work type on every row the feed still returns, because a duplicate
 whose feed positively declares contract work gets its stored work type updated.
+
+Arbeitnow's `job_types` array mixes seniority with the contract form (`["Experienced","contract"]`,
+`["Contract"]`, `["Experienced","freelance"]`), so its contract tokens feed the same per-row work type.
+It adds no request and no row: the rows were already being stored, they were simply counted as salaried.
+
+### How deep Freelancer.com is paged, and why
+
+Measured 2026-11-18: the active-projects endpoint reports `total_count` 4,285, and offsets past 3,000
+still answer, so the ceiling is the board, not the API. Depth is bounded on purpose. In the newest 500
+projects, 48 % match development work by title or skill tag, the median budget minimum is $250, and only
+28 % are both development and at least $100. That window reaches back about three days; past it, an
+active project is usually a lead that has already gone unanswered for a week. Paging the whole board
+would store about 4,300 rows at roughly 2.6 writes each — around 11,000 writes, more than the
+deployment's entire daily D1 allowance of 10,000 rows.
+
+The adapter now reads 100 per page for 5 pages: the newest 500, up from 150. The first sweep after the
+change costs roughly 900 writes; afterwards only genuinely new postings cost anything, of the order of a
+few hundred writes a day. Writes per inserted row are measured from this workspace, not assumed: one
+`opportunities` row, one `activities` row, and the matched skills (0.56 per row on average locally).
+
+Jobicy's `count` was left at 50. Doubling it to 100 adds about 12 contract rows against 50 extra
+salaried ones, which widens the imbalance in the wrong direction for the mark it costs.
