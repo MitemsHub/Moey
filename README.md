@@ -58,10 +58,11 @@ a board list widens coverage instead of multiplying one employer's volume.
 What was probed, what answered, and what refused access is recorded in [`docs/SOURCES.md`](docs/SOURCES.md), along
 with the reason for each refusal.
 
-Two work types reach the board. Employer boards and job feeds are salaried postings. Gig marketplaces, tender
-notices, and any feed row that declares contract, freelance or temporary work in its own data are contract work.
-The list marks each row GIG, CONTRACT or JOB, and the work filter keeps them apart. Classification uses what the
-source publishes: its kind, or an employment-type field on the row. It never reads a title and guesses.
+Three lanes reach the board. Employer boards and job feeds are salaried postings. Gig marketplaces, tender notices,
+and any feed row that declares contract, freelance or temporary work in its own data are contract work. Bounty
+boards are their own lane: a contest judged by a sponsor, with one winner and no rate, so those rows are marked
+BOUNTY and stay out of both the gig and the salaried views. Classification uses what the source publishes, its kind
+or an employment-type field on the row. It never reads a title and guesses.
 
 ## Application kits
 

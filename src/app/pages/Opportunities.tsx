@@ -8,26 +8,7 @@ import { submitManual, useApiMutation, useOpportunities, useSources } from '../l
 import { cx } from '../lib/cx'
 import { relativeTime, shortDate } from '../lib/format'
 import type { OpportunityQuery, SourceKind } from '../../shared/types'
-
-/**
- * Work-type marker for a row. The source's kind is the default, and it is overridden
- * only by a work type the row itself carries: a job feed that tags one posting
- * Contract/Freelance is quoting that posting, so the row reads "contract" and is
- * counted in the gig view. Nothing here is read from a title or a description.
- * Gig marketplaces read "gig", procurement notices "contract", employer boards and job
- * feeds "job", so a salaried row is labelled as plainly as a gig row. Directory and
- * community rows stay unmarked: those are prospects and conversations, not offered work.
- */
-function workMarker(
-  kind: SourceKind | null | undefined,
-  workType: 'gig' | null | undefined,
-): 'gig' | 'contract' | 'job' | null {
-  if (workType === 'gig') return 'contract'
-  if (kind === 'gig') return 'gig'
-  if (kind === 'tender') return 'contract'
-  if (kind === 'ats' || kind === 'feed') return 'job'
-  return null
-}
+import { workMarker } from '../../shared/work'
 
 function WorkMarker({ kind, workType }: { kind: SourceKind | null | undefined; workType: 'gig' | null | undefined }) {
   const mark = workMarker(kind, workType)
@@ -37,7 +18,13 @@ function WorkMarker({ kind, workType }: { kind: SourceKind | null | undefined; w
       className={cx(
         'shrink-0 rounded-[2px] border px-1 text-[9.5px] uppercase tracking-wide',
         // Salaried work is the default case, so its marker stays quieter than a gig's.
-        mark === 'job' ? 'border-line/60 text-faint' : 'border-line text-muted',
+        // A bounty is quieter still and dashed: the reward goes to one winner, so the
+        // row must not read like an engagement someone is offering.
+        mark === 'job'
+          ? 'border-line/60 text-faint'
+          : mark === 'bounty'
+            ? 'border-dashed border-line text-muted'
+            : 'border-line text-muted',
       )}
     >
       {mark}
@@ -335,12 +322,13 @@ export function Opportunities() {
           <Select
             value={query.work ?? ''}
             onChange={(e) => update({ work: (e.target.value || undefined) as OpportunityQuery['work'] })}
-            className="w-[176px]"
+            className="w-[192px]"
             aria-label="Work type"
           >
             <option value="">All work · gigs first</option>
             <option value="gig">Gigs &amp; contract</option>
             <option value="job">Salaried jobs</option>
+            <option value="bounty">Bounties &amp; contests</option>
           </Select>
 
           <Select

@@ -2,7 +2,7 @@
 
 export type Pipeline = 'individual' | 'business'
 export type SignalType = 'explicit' | 'emerging'
-export type SourceKind = 'ats' | 'tender' | 'feed' | 'community' | 'gig' | 'directory' | 'manual'
+export type SourceKind = 'ats' | 'tender' | 'feed' | 'community' | 'gig' | 'bounty' | 'directory' | 'manual'
 /** `idle` = configured and runnable, but has never run. Reporting `ok` before the
  *  first scan would be a claim we cannot make. */
 export type SourceHealth = 'ok' | 'idle' | 'degraded' | 'failing' | 'unconfigured'
@@ -234,8 +234,9 @@ export interface OpportunityQuery {
   /** Free-text match against the posting's location field. */
   location?: string
   /** `gig` keeps gig and contract sources plus any row the source itself tags
-   *  contract/freelance; `job` keeps employer boards and job feeds minus those rows. */
-  work?: 'gig' | 'job'
+   *  contract/freelance; `job` keeps employer boards and job feeds minus those rows;
+   *  `bounty` keeps only the contest lane, which neither of the other two includes. */
+  work?: 'gig' | 'job' | 'bounty'
   minScore?: number
   sort?: 'recent' | 'score' | 'deadline'
   page?: number

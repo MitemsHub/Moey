@@ -5,6 +5,7 @@ import { id, mapActivity, mapApplication, mapOpportunity, now, OPP_SELECT } from
 import type { AppContext } from '../env'
 import { extractSkills, MODEL_GATE, refineWithModel, scoreByRules } from '../qualify'
 import type { OpportunityForScoring, ProfileForScoring } from '../qualify'
+import { workClause, WORK_ORDER } from '../workFilter'
 
 export const opportunities = new Hono<AppContext>()
 
@@ -62,21 +63,15 @@ opportunities.get('/', async (c) => {
     where.push('o.location LIKE ?')
     bind.push(`%${query.location.replace(/[%_]/g, '')}%`)
   }
-  // Work type comes from what the source declares — its kind, or the engagement it
-  // tags on a single row — never from guessing at the posting text. A tender is a
-  // contract too, so it sits with the gig marketplaces. A job-feed row the feed itself
-  // calls Contract/Freelance is contract work, so it moves out of the salaried view
-  // and into the gig view instead of being counted in both. Business-prospect
-  // directories are neither, so they only appear under "all work".
-  if (query.work === 'gig') {
-    where.push(
-      "(o.work_type = 'gig' OR EXISTS (SELECT 1 FROM sources s2 WHERE s2.id = o.source_id AND s2.owner_sub = o.owner_sub AND s2.kind IN ('gig','tender')))",
-    )
-  } else if (query.work === 'job') {
-    where.push(
-      "COALESCE(o.work_type, '') <> 'gig' AND EXISTS (SELECT 1 FROM sources s2 WHERE s2.id = o.source_id AND s2.owner_sub = o.owner_sub AND s2.kind IN ('ats','feed'))",
-    )
-  }
+  // Work type comes from what the source declares, its kind, or the engagement it
+  // tags on a single row. A tender is a contract, so it sits with the gig marketplaces,
+  // and a job-feed row the feed itself calls Contract/Freelance moves out of the
+  // salaried view. A bounty is neither: a contest judged by a sponsor, excluded from
+  // both lanes and reachable only through its own filter or "all work". Business
+  // directories are none of them. The clauses live in ../workFilter so the scan plan
+  // counts rows by the same rule.
+  const workWhere = workClause(query.work)
+  if (workWhere) where.push(workWhere)
   if (query.minScore && !Number.isNaN(Number(query.minScore))) {
     where.push('o.score >= ?')
     bind.push(Number(query.minScore))
@@ -89,7 +84,7 @@ opportunities.get('/', async (c) => {
         ? 'o.deadline ASC NULLS LAST, o.first_seen_at DESC'
         : // Freshness still leads, but gig and contract rows come first so the default
           // view answers "what can I get paid for" before it lists salaried postings.
-          "CASE WHEN o.work_type = 'gig' OR s.kind IN ('gig','tender') THEN 0 ELSE 1 END, o.first_seen_at DESC"
+          WORK_ORDER
 
   const page = Math.max(1, Number(query.page ?? 1) || 1)
   const pageSize = 25

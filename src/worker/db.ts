@@ -196,6 +196,15 @@ export function ensureSchema(db: D1Database): Promise<void> {
       // and free-text work history (there is no separate experience table).
       .then(() => db.exec('ALTER TABLE profiles ADD COLUMN github TEXT').catch(() => undefined))
       .then(() => db.exec('ALTER TABLE profiles ADD COLUMN experience TEXT').catch(() => undefined))
+      // A source's kind is copied from its adapter when the row is seeded, so an
+      // adapter that moves lanes leaves the stored rows behind. Superteam moved from
+      // the gig marketplaces to the bounty lane; after the first run this statement
+      // matches nothing and writes nothing.
+      .then(() =>
+        db
+          .exec("UPDATE sources SET kind = 'bounty' WHERE adapter = 'superteam' AND kind <> 'bounty'")
+          .catch(() => undefined),
+      )
       .then(() => undefined)
       .catch((error) => {
         ready.delete(db)
@@ -246,7 +255,7 @@ export function mapSource(r: Row) {
     id: r.id as string,
     adapter: r.adapter as string,
     label: r.label as string,
-    kind: r.kind as 'ats' | 'tender' | 'feed' | 'community' | 'manual',
+    kind: r.kind as 'ats' | 'tender' | 'feed' | 'community' | 'gig' | 'bounty' | 'directory' | 'manual',
     pipeline: r.pipeline as 'individual' | 'business' | 'both',
     enabled: Number(r.enabled) === 1,
     health: r.health as 'ok' | 'idle' | 'degraded' | 'failing' | 'unconfigured',
@@ -287,7 +296,16 @@ export function mapOpportunity(r: Row) {
     sourceId: str(r.source_id),
     sourceLabel: str(r.source_label),
     sourceAdapter: str(r.source_adapter),
-    sourceKind: str(r.source_kind) as 'ats' | 'tender' | 'feed' | 'community' | 'gig' | 'directory' | 'manual' | null,
+    sourceKind: str(r.source_kind) as
+      | 'ats'
+      | 'tender'
+      | 'feed'
+      | 'community'
+      | 'gig'
+      | 'bounty'
+      | 'directory'
+      | 'manual'
+      | null,
     workType: (str(r.work_type) as 'gig' | null) ?? null,
     location: str(r.location),
     remote: bool(r.remote),

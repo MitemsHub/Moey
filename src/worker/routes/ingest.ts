@@ -9,6 +9,7 @@ import type { AppContext } from '../env'
 import { ingest, runSource } from '../ingest'
 import type { IngestCounts } from '../ingest'
 import { seedSources } from '../sources-registry'
+import { workClause } from '../workFilter'
 
 export const ingestRoute = new Hono<AppContext>()
 
@@ -78,17 +79,20 @@ ingestRoute.get('/plan', async (c) => {
   // What the rows a scan would write today look like, in the same terms the app's
   // work filter uses. A run that reports "ok, 0 inserted" because every row was a
   // duplicate is otherwise indistinguishable from one that added nothing to the
-  // gig view, so the runner gets the totals it is actually trying to move.
+  // gig view, so the runner gets the totals it is actually trying to move. The
+  // clauses come from ../workFilter, so a row cannot count as one thing here and
+  // appear under another in the app.
   const totals = await c
     .get('db')
     .prepare(
       `SELECT COUNT(*) AS all_rows,
-         SUM(CASE WHEN o.work_type = 'gig' OR s.kind IN ('gig','tender') THEN 1 ELSE 0 END) AS gig,
-         SUM(CASE WHEN COALESCE(o.work_type, '') <> 'gig' AND s.kind IN ('ats','feed') THEN 1 ELSE 0 END) AS job
+         SUM(CASE WHEN ${workClause('gig')} THEN 1 ELSE 0 END) AS gig,
+         SUM(CASE WHEN ${workClause('job')} THEN 1 ELSE 0 END) AS job,
+         SUM(CASE WHEN ${workClause('bounty')} THEN 1 ELSE 0 END) AS bounty
        FROM opportunities o
        LEFT JOIN sources s ON s.id = o.source_id AND s.owner_sub = o.owner_sub`,
     )
-    .first<{ all_rows: number; gig: number | null; job: number | null }>()
+    .first<{ all_rows: number; gig: number | null; job: number | null; bounty: number | null }>()
 
   return privateJson(c, {
     sources: (rows.results ?? []).map((row) => ({
@@ -101,6 +105,7 @@ ingestRoute.get('/plan', async (c) => {
       all: Number(totals?.all_rows ?? 0),
       gig: Number(totals?.gig ?? 0),
       job: Number(totals?.job ?? 0),
+      bounty: Number(totals?.bounty ?? 0),
     },
   })
 })

@@ -225,6 +225,25 @@ The gig view includes `work_type = 'gig'` rows, the salaried view excludes them,
 the next scan of those feeds sets the work type on every row the feed still returns, because a duplicate
 whose feed positively declares contract work gets its stored work type updated.
 
+### The bounty lane
+
+Superteam Earn declares every listing it publishes as `type: "bounty"` and exposes no skills, category or
+employment field. Read on 2026-11-18, its 12 open listings were 2 build contests, 1 with no stated scope, and 9
+content, marketing or feedback contests. The two engineering entries carried 5,500 of about 20,650 in
+dollar-denominated reward, while one writing and video contest carried 13,000.
+
+That is a different transaction from an engagement someone offers: one winner, a sponsor's judgement, work
+delivered before payment, no rate, and often a token reward that is not comparable to a currency (`689,655 BAOBAO`
+was the largest single number on the board). So the adapter is `kind: 'bounty'`, and the row is excluded from both
+the gig view and the salaried view. It appears under "all work" or under the `bounty` filter, marked `BOUNTY`.
+
+Existing databases were seeded with the old `gig` kind, so schema setup runs a guarded update that moves the
+stored source row to `bounty`. After the first run the statement matches nothing and writes nothing.
+
+The filter clauses live in `src/worker/workFilter.ts` and are used by both the list route and the scan plan counts,
+so a row cannot count as one lane and display as another. The rules are tested against a real SQLite table rather
+than by matching SQL strings.
+
 ### What the rule scorer reads
 
 The scorer reads the posting and its own title, never a sentence an adapter wrote. Three

@@ -1041,7 +1041,7 @@ const wwrContract: Adapter = {
 const superteam: Adapter = {
   key: 'superteam',
   label: 'Superteam Earn bounties',
-  kind: 'gig',
+  kind: 'bounty',
   pipeline: 'individual',
   note: 'Keyless public listings: open bounties and projects with a sponsor, a stated reward and a deadline. Prizes are chosen by the sponsor, not offered as a contract.',
   attribution: { label: 'Superteam Earn', url: 'https://earn.superteam.fun' },

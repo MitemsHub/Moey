@@ -1,6 +1,9 @@
+import { DatabaseSync } from 'node:sqlite'
 import { describe, expect, test } from 'vitest'
 
-import { parseDataAnnotationRoles } from '../src/worker/adapters'
+import { ADAPTERS, parseDataAnnotationRoles } from '../src/worker/adapters'
+import { workClause } from '../src/worker/workFilter'
+import { workMarker } from '../src/shared/work'
 import { canonicalTitle, hash, normalise, similarity } from '../src/worker/dedupe'
 import { extractSkills, scoreByRules } from '../src/worker/qualify'
 
@@ -260,5 +263,77 @@ describe('prospect scoring', () => {
 
     expect(result.score).toBe(25)
     expect(result.rationale).toContain('no web, software or data service')
+  })
+})
+
+describe('bounty lane', () => {
+  test('Superteam is the bounty adapter', () => {
+    expect(ADAPTERS.find((adapter) => adapter.key === 'superteam')?.kind).toBe('bounty')
+  })
+
+  test('a row is marked from its source kind, and a declared row outranks the kind', () => {
+    expect(workMarker('bounty', null)).toBe('bounty')
+    expect(workMarker('gig', null)).toBe('gig')
+    expect(workMarker('tender', null)).toBe('contract')
+    expect(workMarker('ats', null)).toBe('job')
+    expect(workMarker('feed', 'gig')).toBe('contract')
+    expect(workMarker('directory', null)).toBeNull()
+    expect(workMarker(null, null)).toBeNull()
+  })
+
+  // The clauses run against a real SQLite table with the same expression the list
+  // route and the scan plan use, so a lane that leaks fails here.
+  test('gig and job views exclude bounties, and the bounty filter is the only way in', () => {
+    const db = new DatabaseSync(':memory:')
+    db.exec(`
+      CREATE TABLE sources (id TEXT PRIMARY KEY, owner_sub TEXT, kind TEXT);
+      CREATE TABLE opportunities (id TEXT PRIMARY KEY, owner_sub TEXT, source_id TEXT, work_type TEXT);
+    `)
+    const source = db.prepare('INSERT INTO sources (id, owner_sub, kind) VALUES (?, ?, ?)')
+    for (const [key, kind] of [
+      ['s-gig', 'gig'],
+      ['s-bounty', 'bounty'],
+      ['s-feed', 'feed'],
+      ['s-ats', 'ats'],
+    ]) {
+      source.run(key as string, 'u', kind as string)
+    }
+    const row = db.prepare(
+      'INSERT INTO opportunities (id, owner_sub, source_id, work_type) VALUES (?, ?, ?, ?)',
+    )
+    row.run('o-gig', 'u', 's-gig', null)
+    row.run('o-bounty', 'u', 's-bounty', null)
+    row.run('o-contract', 'u', 's-feed', 'gig')
+    row.run('o-job', 'u', 's-ats', null)
+    row.run('o-manual', 'u', null, null)
+
+    const ids = (work?: string) => {
+      const clause = workClause(work)
+      const sql = `SELECT id FROM opportunities o WHERE o.owner_sub = 'u'${clause ? ` AND ${clause}` : ''} ORDER BY id`
+      return (db.prepare(sql).all() as { id: string }[]).map((entry) => entry.id)
+    }
+
+    expect(ids('gig')).toEqual(['o-contract', 'o-gig'])
+    expect(ids('job')).toEqual(['o-job'])
+    expect(ids('bounty')).toEqual(['o-bounty'])
+    expect(ids()).toEqual(['o-bounty', 'o-contract', 'o-gig', 'o-job', 'o-manual'])
+
+    // The plan sums the same clauses, so the totals the runner reports cannot
+    // disagree with the views a person sees.
+    const counts = db
+      .prepare(
+        `SELECT COUNT(*) AS all_rows,
+           SUM(CASE WHEN ${workClause('gig')} THEN 1 ELSE 0 END) AS gig,
+           SUM(CASE WHEN ${workClause('job')} THEN 1 ELSE 0 END) AS job,
+           SUM(CASE WHEN ${workClause('bounty')} THEN 1 ELSE 0 END) AS bounty
+         FROM opportunities o`,
+      )
+      .get() as { all_rows: number; gig: number; job: number; bounty: number }
+
+    expect(counts.all_rows).toBe(5)
+    expect(counts.gig).toBe(2)
+    expect(counts.job).toBe(1)
+    expect(counts.bounty).toBe(1)
+    db.close()
   })
 })
