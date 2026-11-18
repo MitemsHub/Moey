@@ -768,12 +768,23 @@ const freelancer: Adapter = {
   needs: null,
   configHint: '{ "limit": 40 }',
   async fetch(ctx) {
-    const limit = Math.min(Number(ctx.config.limit ?? 40), 100)
-    const data = await fetchJson<{ result?: { projects?: Record<string, unknown>[] } }>(
-      `https://www.freelancer.com/api/projects/0.1/projects/active/?limit=${limit}&job_details=true&full_description=true`,
-      { timeoutMs: ctx.timeoutMs },
-    )
-    return (data.result?.projects ?? []).flatMap((project) => {
+    // One page of 40 was the original shape and it capped the whole gig view. The
+    // endpoint takes limit=100 and a real offset (verified 2026-11-18: offsets 0, 100,
+    // 200 and 300 returned 399 distinct projects), so breadth comes from paging.
+    const perPage = Math.min(Math.max(Number(ctx.config.perPage ?? 50), 1), 100)
+    const pages = Math.min(Math.max(Number(ctx.config.pages ?? 3), 1), 8)
+    const projects: Record<string, unknown>[] = []
+    for (let page = 0; page < pages; page++) {
+      const data = await fetchJson<{ result?: { projects?: Record<string, unknown>[] } }>(
+        `https://www.freelancer.com/api/projects/0.1/projects/active/?limit=${perPage}&offset=${page * perPage}&job_details=true&full_description=true`,
+        { timeoutMs: ctx.timeoutMs },
+      )
+      const rows = data.result?.projects ?? []
+      projects.push(...rows)
+      // A short page means there is nothing after it; stop instead of asking again.
+      if (rows.length < perPage) break
+    }
+    return projects.flatMap((project) => {
       const title = String(project.title ?? '').trim()
       // seo_url is a relative path; the canonical public URL needs the /projects/ prefix.
       const url = project.seo_url ? `https://www.freelancer.com/projects/${String(project.seo_url)}` : ''
@@ -863,9 +874,9 @@ const braintrust: Adapter = {
   configHint: '{ "pages": 3 }',
   async fetch(ctx) {
     // The list endpoint serves 20 rows a page and ignores larger limits (136 rows live
-    // on 2026-11-17), so breadth comes from paging. Three pages by default keeps one
-    // scan bounded: every newly inserted row costs about a dozen writes of its own.
-    const pages = Math.min(Math.max(Number(ctx.config.pages ?? 3), 1), 7)
+    // on 2026-11-17), so breadth comes from paging. Seven pages reaches the whole
+    // public list; every newly inserted row still costs about a dozen writes of its own.
+    const pages = Math.min(Math.max(Number(ctx.config.pages ?? 7), 1), 7)
     const rows: Record<string, unknown>[] = []
     for (let page = 1; page <= pages; page++) {
       const data = await fetchJson<{ results?: Record<string, unknown>[] }>(
@@ -915,6 +926,185 @@ const braintrust: Adapter = {
         signal: 'explicit',
       } satisfies RawOpportunity]
     })
+  },
+}
+
+/**
+ * We Work Remotely's main feed tags every row with its own employment type
+ * (`<type>Contract</type>`), and that tag — not a title or a guessed keyword — is what
+ * makes a row a gig here. Only Contract, Freelance and Temporary rows are taken.
+ *
+ * The programming category is already wired as `weworkremotely`; both use the same
+ * `wwr:<hash>` id, so a programming contract role that arrived there first is counted
+ * as a duplicate rather than shown twice.
+ */
+const wwrContract: Adapter = {
+  key: 'wwr-contract',
+  label: 'We Work Remotely (contract)',
+  kind: 'gig',
+  pipeline: 'individual',
+  note: "Contract and freelance roles from the main We Work Remotely feed, selected by that feed's own <type> tag. No key.",
+  attribution: { label: 'We Work Remotely', url: 'https://weworkremotely.com' },
+  needs: null,
+  configHint: '{}',
+  async fetch(ctx) {
+    const xml = await fetchText('https://weworkremotely.com/remote-jobs.rss', { timeoutMs: ctx.timeoutMs })
+    const items = xml.match(/<item[\s>][\s\S]*?<\/item>/gi) ?? []
+    return items.flatMap((item) => {
+      const type = (/<type>([\s\S]*?)<\/type>/i.exec(item)?.[1] ?? '').trim()
+      if (!/^(contract|freelance|temporary)$/i.test(type)) return []
+      const title = (/<title>(?:<!\[CDATA\[)?([\s\S]*?)(?:\]\]>)?<\/title>/i.exec(item)?.[1] ?? '').trim()
+      const link = (/<link>([\s\S]*?)<\/link>/i.exec(item)?.[1] ?? '').trim()
+      if (!title || !link) return []
+      const region = (/<region>([\s\S]*?)<\/region>/i.exec(item)?.[1] ?? '').trim()
+      const date = (/<pubDate>([\s\S]*?)<\/pubDate>/i.exec(item)?.[1] ?? '').trim()
+      // This feed escapes its HTML twice: the tags only become real tags after the
+      // entities are decoded, so decoding has to happen before stripping or the row
+      // body keeps literal <img> and <p> markup.
+      const body = stripHtml(decodeEntities(/<description>([\s\S]*?)<\/description>/i.exec(item)?.[1] ?? ''))
+      // Titles are "Company: Role" in this feed.
+      const [company, role] = title.includes(':')
+        ? [title.split(':')[0].trim(), title.split(':').slice(1).join(':').trim()]
+        : [null, title]
+      return [{
+        externalId: `wwr:${hashish(link)}`,
+        title: role || title,
+        org: company,
+        url: link,
+        location: region || null,
+        remote: true,
+        publishedAt: toEpoch(date),
+        text: body,
+        tags: [type.toLowerCase()],
+        signal: 'explicit' as const,
+      } satisfies RawOpportunity]
+    })
+  },
+}
+
+/**
+ * Superteam Earn — public bounty board for the Solana ecosystem. The listings endpoint
+ * answers keyless with open bounties and projects, each carrying a sponsor, a stated
+ * reward in a named token and a deadline (verified 2026-11-18: 12 open, listing pages
+ * resolve 200). It sends no publish date, so freshness stays null rather than invented.
+ */
+const superteam: Adapter = {
+  key: 'superteam',
+  label: 'Superteam Earn bounties',
+  kind: 'gig',
+  pipeline: 'individual',
+  note: 'Keyless public listings: open bounties and projects with a sponsor, a stated reward and a deadline. Prizes are chosen by the sponsor, not offered as a contract.',
+  attribution: { label: 'Superteam Earn', url: 'https://earn.superteam.fun' },
+  needs: null,
+  configHint: '{}',
+  async fetch(ctx) {
+    const data = await fetchJson<Record<string, unknown>[] | { listings?: Record<string, unknown>[] }>(
+      'https://earn.superteam.fun/api/listings/',
+      { timeoutMs: ctx.timeoutMs },
+    )
+    const rows = Array.isArray(data) ? data : (data.listings ?? [])
+    return rows.flatMap((listing) => {
+      if (String(listing.status ?? '').toUpperCase() !== 'OPEN') return []
+      const title = String(listing.title ?? '').trim()
+      const slug = String(listing.slug ?? '').trim()
+      if (!title || !slug) return []
+      const sponsor = (listing.sponsor as { name?: string } | undefined)?.name ?? null
+      const token = String(listing.token ?? '').trim()
+      const fixed = Number(listing.rewardAmount) || undefined
+      const min = Number(listing.minRewardAsk) || undefined
+      const max = Number(listing.maxRewardAsk) || undefined
+      const isRange = String(listing.compensationType ?? '') === 'range'
+      const reward = isRange ? { min, max } : { min: fixed, max: fixed }
+      const kind = String(listing.type ?? 'bounty')
+      const rewardLabel = fixed || min || max
+        ? `${isRange ? `${min ?? '?'}–${max ?? '?'}` : fixed} ${token}`.trim()
+        : 'a reward set per listing'
+      const deadline = toEpoch(listing.deadline)
+      return [{
+        externalId: `superteam:${listing.id ?? slug}`,
+        title,
+        org: sponsor,
+        url: `https://earn.superteam.fun/listing/${slug}/`,
+        location: 'Online',
+        remote: true,
+        publishedAt: null,
+        deadline,
+        compensation: reward.min || reward.max ? { ...reward, currency: token || 'USD' } : null,
+        text: [
+          sponsor ? `${sponsor} published this ${kind} on Superteam Earn.` : `This ${kind} was published on Superteam Earn.`,
+          `Stated reward: ${rewardLabel}.`,
+          deadline ? `Submissions close ${new Date(deadline).toISOString().slice(0, 10)}.` : '',
+          'Open call for submissions: the sponsor reviews entries and pays the winners.',
+        ].filter(Boolean).join(' '),
+        tags: [kind, 'web3', 'bounty'],
+        signal: 'explicit' as const,
+      } satisfies RawOpportunity]
+    })
+  },
+}
+
+/**
+ * Bugcrowd — the public engagement board. These are open bounty programmes that pay per
+ * accepted report, so the money is real but it is not a salary and not a fixed contract;
+ * every row says so. Private and demo engagements are skipped because they cannot be
+ * joined. Pagination is a real `?page=` (verified 2026-11-18: 24 per page, 296 total).
+ */
+const bugcrowd: Adapter = {
+  key: 'bugcrowd',
+  label: 'Bugcrowd bounty programs',
+  kind: 'gig',
+  pipeline: 'individual',
+  note: 'Public bounty board JSON. Open security programmes paying per accepted report — not a salary. No key.',
+  attribution: { label: 'Bugcrowd', url: 'https://bugcrowd.com' },
+  needs: null,
+  configHint: '{ "pages": 2 }',
+  async fetch(ctx) {
+    const pages = Math.min(Math.max(Number(ctx.config.pages ?? 2), 1), 13)
+    const out: RawOpportunity[] = []
+    for (let page = 1; page <= pages; page++) {
+      const data = await fetchJson<{ engagements?: Record<string, unknown>[] }>(
+        `https://bugcrowd.com/engagements.json?page=${page}`,
+        { timeoutMs: ctx.timeoutMs },
+      ).catch(() => ({ engagements: [] as Record<string, unknown>[] }))
+      for (const engagement of data.engagements ?? []) {
+        const title = String(engagement.name ?? '').trim()
+        const brief = String(engagement.briefUrl ?? '').trim()
+        if (!title || !brief) continue
+        if (engagement.isPrivate === true || engagement.isDemo === true) continue
+        if (String(engagement.accessStatus ?? 'open') !== 'open') continue
+        const reward = (engagement.rewardSummary as Record<string, unknown> | undefined) ?? {}
+        const money = (value: unknown): number | undefined => {
+          const parsed = Number(String(value ?? '').replace(/[^0-9.]/g, ''))
+          return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
+        }
+        const min = money(reward.minReward)
+        const max = money(reward.maxReward)
+        const programme = (engagement.productEngagementType as { label?: string } | undefined)?.label ?? 'Bounty'
+        const industry = String(engagement.industryName ?? '').trim()
+        const endsAt = toEpoch(engagement.endsAt)
+        out.push({
+          externalId: `bugcrowd:${brief.replace(/^\//, '')}`,
+          title,
+          org: industry || null,
+          url: `https://bugcrowd.com${brief.startsWith('/') ? brief : `/${brief}`}`,
+          location: 'Online',
+          remote: true,
+          publishedAt: null,
+          deadline: endsAt,
+          compensation: min || max ? { min, max, currency: 'USD' } : null,
+          text: [
+            String(engagement.tagline ?? '').trim(),
+            `Open ${programme.toLowerCase()} programme on Bugcrowd${industry ? ` in ${industry}` : ''}.`,
+            min || max ? `Published reward range: $${min ?? 0}–$${max ?? 0} per accepted report.` : '',
+            endsAt ? `Programme ends ${new Date(endsAt).toISOString().slice(0, 10)}.` : '',
+            'Rewards are paid per valid report; this is not a salary or a fixed contract.',
+          ].filter(Boolean).join(' '),
+          tags: ['security', 'bounty'],
+          signal: 'explicit' as const,
+        })
+      }
+    }
+    return out
   },
 }
 
@@ -1233,6 +1423,7 @@ export const ADAPTERS: Adapter[] = [
   greenhouse, lever, ashby,
   jobicy, remotive, remoteok, himalayas, workingNomads, arbeitnow, weWorkRemotely,
   freelancer, braintrust, cryptojobslist,
+  wwrContract, superteam, bugcrowd,
   hackerNews, mastodon, ted, sam,
   osm, osmDeadSites, dataAnnotation,
 ]

@@ -159,3 +159,62 @@ opposite direction: find businesses that exist and have no web presence, then ap
 
 None publish an open job API — they are application-gated accounts. They cannot be discovered automatically
 and should be tracked as manual applications in the Leads board, not scraped.
+
+## Gig / contract sources — probed 2026-11-18
+
+Run with `node scripts/probe-gig-sources.mjs` (46 endpoints) and two follow-up passes for volume and
+field shapes. Every row below is a live request made that day.
+
+### Adopted
+
+| Source | Endpoint | What it is | Measured |
+| --- | --- | --- | --- |
+| We Work Remotely (contract) | `weworkremotely.com/remote-jobs.rss` | Main feed, filtered by the feed's own `<type>` element (Contract / Freelance / Temporary) | 100 items, 15 contract |
+| Superteam Earn | `earn.superteam.fun/api/listings/` | Public bounties and projects with sponsor, reward token and deadline; every listing page resolved 200 | 12 open |
+| Bugcrowd programmes | `bugcrowd.com/engagements.json?page=N` | Open bounty programmes paying per accepted report; private and demo rows skipped | 24 per page, 296 total; 2 pages wired (48) |
+| Freelancer.com (existing) | `api/projects/0.1/projects/active/?limit=&offset=` | Now paged; `limit=100` and a real `offset` both work | 399 distinct projects across 4 pages; 150 per scan by default |
+| Braintrust (existing) | `app.usebraintrust.com/api/jobs/` | Now reads the whole public list instead of the first 60 | 136 rows |
+
+Selection rule: keyless, no login, robots/terms allow the listed path, and the gig classification comes from
+the source's own declared employment type (or the source being a gig marketplace) — never from reading a
+title and guessing.
+
+### Refused or unusable (same day)
+
+| Source | Result | Why |
+| --- | --- | --- |
+| Upwork | RSS 403, API 403 | Cloudflare wall; no public read path, and its terms forbid scraping |
+| Fiverr | 403 | Blocks automated access |
+| Guru | 403 | Blocks automated access |
+| Workana | 403 | Blocks automated access |
+| Malt | 403 | Blocks automated access |
+| Truelancer | 403 | Blocks automated access |
+| freelance.de | 403 | Blocks automated access |
+| PeoplePerHour | 404 (`API Endpoint Not Found`) | No public API |
+| Freelancermap | 404 on `/rss`, `/rss.xml` and `/api/projects` | No public feed or API |
+| Freelancehunt | 404 | Feed path gone |
+| Twine | 404 on API and RSS | No public API |
+| Contra | 404 (`Route GET:/v1/opportunities not found`) | No public listings route |
+| Arc.dev | 404 | HTML app only; jobs need an account |
+| Gun.io | 404 | No public API |
+| DesignCrowd / 99designs | 404 | No public feed |
+| Dribbble jobs | 200, 53 feed items | No employment-type field, so a row cannot be called a contract without guessing; not wired |
+| Algora | 404 / 406 | Bounties are app-only; no public listing API |
+| DoraHacks | 405 to GET | API rejects GET |
+| IssueHunt | 200 but HTML | `api/v1/issues` serves the app shell, not JSON |
+| HackerOne | 401 `No credentials were provided` | Programs API needs an authenticated researcher account |
+| Gitcoin | fetch failed | Service no longer answers; bounties product retired |
+| Remote3 / LaborX | 404 | No public API |
+| We Work Remotely contract category | 301 with no location, `/contract.rss` 403 | The category feed is gone; the main feed's `<type>` tag is the working path |
+| Freelancer.com contests | 400 on every documented parameter set | Contests endpoint unusable as documented; projects endpoint is the working one |
+| NoDesk / Remote.co contract | 404 / 403 | Not reachable |
+| Jobspresso, Authentic Jobs | 200 | Jobspresso ignores its `job_type` filter; Authentic Jobs' feed now carries blog posts, not roles |
+| Himalayas, Jobicy, Remotive employment-type filters | 200 but unfiltered | The query parameter is ignored; filtering client-side would only re-label rows the feed already owns |
+
+### Known limitation
+
+The job feeds already wired declare contract rows of their own — Jobicy `jobType` was 24/100 Contract,
+Remotive `job_type` 5/16 contract or freelance, Himalayas `employmentType` around 5–10 % Contractor. Those
+rows stay in the salaried view because an opportunity's work type is its **source's** kind, and those
+sources are job feeds. Re-classifying a row needs a per-row work-type column on `opportunities`, not a
+source-level flag, and is not part of this change.

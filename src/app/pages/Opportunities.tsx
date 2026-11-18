@@ -7,7 +7,36 @@ import { Button, Dialog, EmptyState, Field, Input, PageHeader, Select, Skeleton,
 import { submitManual, useApiMutation, useOpportunities, useSources } from '../lib/api'
 import { cx } from '../lib/cx'
 import { relativeTime, shortDate } from '../lib/format'
-import type { OpportunityQuery } from '../../shared/types'
+import type { OpportunityQuery, SourceKind } from '../../shared/types'
+
+/**
+ * Work-type marker for a row, read from the source's kind — never from the posting.
+ * Gig marketplaces read "gig", procurement notices "contract", and employer boards and
+ * job feeds "job", so a salaried row is labelled as plainly as a gig row. Directory and
+ * community rows stay unmarked: those are prospects and conversations, not offered work.
+ */
+function workMarker(kind: SourceKind | null | undefined): 'gig' | 'contract' | 'job' | null {
+  if (kind === 'gig') return 'gig'
+  if (kind === 'tender') return 'contract'
+  if (kind === 'ats' || kind === 'feed') return 'job'
+  return null
+}
+
+function WorkMarker({ kind }: { kind: SourceKind | null | undefined }) {
+  const mark = workMarker(kind)
+  if (!mark) return null
+  return (
+    <span
+      className={cx(
+        'shrink-0 rounded-[2px] border px-1 text-[9.5px] uppercase tracking-wide',
+        // Salaried work is the default case, so its marker stays quieter than a gig's.
+        mark === 'job' ? 'border-line/60 text-faint' : 'border-line text-muted',
+      )}
+    >
+      {mark}
+    </span>
+  )
+}
 
 function ManualDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useToast()
@@ -401,7 +430,7 @@ export function Opportunities() {
                   <th scope="col" className="w-[30px] px-2 py-2 text-right font-normal sm:w-[7%]">Fit</th>
                   <th scope="col" className="w-[62px] px-2 py-2 font-normal sm:w-[10%]">Closes</th>
                   <th scope="col" className="hidden px-2 py-2 font-normal sm:table-cell sm:w-[8%]">Seen</th>
-                  <th scope="col" className="w-[46px] py-2 pl-2 pr-5 text-right font-normal sm:w-[8%] sm:pr-7">Trace</th>
+                  <th scope="col" className="hidden w-[46px] py-2 pl-2 pr-5 text-right font-normal sm:table-cell sm:w-[8%] sm:pr-7">Trace</th>
                 </tr>
               </thead>
               <tbody>
@@ -424,11 +453,7 @@ export function Opportunities() {
                           )}
                           <span aria-hidden>·</span>
                           <span className="truncate">{item.org ?? 'Organisation not stated'}</span>
-                          {(item.sourceKind === 'gig' || item.sourceKind === 'tender') && (
-                            <span className="shrink-0 rounded-[2px] border border-line px-1 text-[9.5px] uppercase tracking-wide text-muted">
-                              {item.sourceKind === 'gig' ? 'gig' : 'contract'}
-                            </span>
-                          )}
+                          <WorkMarker kind={item.sourceKind} />
                           {item.remote && (
                             <span className="hidden shrink-0 rounded-[2px] bg-surface-2 px-1 text-[9.5px] uppercase tracking-wide sm:inline-block">
                               remote
@@ -447,7 +472,9 @@ export function Opportunities() {
                       {item.deadline ? shortDate(item.deadline) : <span className="text-faint">—</span>}
                     </td>
                     <td className="tnum hidden whitespace-nowrap px-2 py-2.5 text-[11.5px] text-faint sm:table-cell">{relativeTime(item.firstSeenAt)}</td>
-                    <td className="py-2.5 pl-2 pr-5 text-right sm:pr-7">
+                    {/* Trace is the third column dropped on phones, with Source and Seen:
+                        the work marker needs that width or the organisation disappears. */}
+                    <td className="hidden py-2.5 pl-2 pr-5 text-right sm:table-cell sm:pr-7">
                       <ProvenanceTicks published={Boolean(item.publishedAt)} scored={item.score !== null} decided={item.status !== 'new'} />
                     </td>
                   </tr>
