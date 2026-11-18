@@ -170,6 +170,72 @@ async function registerMissingAdapters(db: D1Database): Promise<void> {
   }
 }
 
+/**
+ * Operator action on one source: switch it off so the schedule stops scanning it, and
+ * optionally remove the rows it already stored. Bearer-gated for the same reason the
+ * scans are — the schedule runs outside the app, and taking a source offline should
+ * not need a browser session that the owner may not have open.
+ */
+ingestRoute.post('/source', async (c) => {
+  const blocked = denied(c)
+  if (blocked) return blocked
+
+  const body = (await c.req.json().catch(() => null)) as
+    | { source?: string; enabled?: boolean; purge?: boolean }
+    | null
+  if (!body?.source) return privateJson(c, { error: 'Expected { source, enabled?, purge? }.' }, 400)
+  if (typeof body.enabled !== 'boolean' && body.purge !== true) {
+    return privateJson(c, { error: 'Nothing to do: pass enabled or purge.' }, 400)
+  }
+
+  const db = c.get('db')
+  const rows = await db
+    .prepare(`SELECT id, owner_sub FROM sources WHERE id = ? OR adapter = ?`)
+    .bind(body.source, body.source)
+    .all<{ id: string; owner_sub: string }>()
+  const sources = rows.results ?? []
+  if (!sources.length) return privateJson(c, { error: `Unknown source “${body.source}”.` }, 404)
+
+  let deleted = 0
+  for (const row of sources) {
+    if (body.purge) deleted += await purgeSource(db, row.owner_sub, row.id)
+    if (typeof body.enabled === 'boolean') {
+      await db
+        .prepare(`UPDATE sources SET enabled = ? WHERE id = ? AND owner_sub = ?`)
+        .bind(body.enabled ? 1 : 0, row.id, row.owner_sub)
+        .run()
+    }
+  }
+
+  return privateJson(c, { sources: sources.map((row) => row.id), deleted })
+})
+
+/**
+ * Removes one source's opportunities and everything that hangs off them. Child rows
+ * are keyed by opportunity id rather than source id, so deleting the opportunity first
+ * would leave them orphaned. Chunked to stay inside D1's bound-parameter limit.
+ */
+async function purgeSource(db: D1Database, ownerSub: string, sourceId: string): Promise<number> {
+  const found = await db
+    .prepare(`SELECT id FROM opportunities WHERE owner_sub = ? AND source_id = ?`)
+    .bind(ownerSub, sourceId)
+    .all<{ id: string }>()
+  const ids = (found.results ?? []).map((row) => row.id)
+  for (let i = 0; i < ids.length; i += 40) {
+    const chunk = ids.slice(i, i + 40)
+    const marks = chunk.map(() => '?').join(',')
+    await db.batch([
+      db.prepare(`DELETE FROM opportunity_skills WHERE owner_sub = ? AND opportunity_id IN (${marks})`).bind(ownerSub, ...chunk),
+      db.prepare(`DELETE FROM scores WHERE owner_sub = ? AND opportunity_id IN (${marks})`).bind(ownerSub, ...chunk),
+      db.prepare(`DELETE FROM activities WHERE owner_sub = ? AND opportunity_id IN (${marks})`).bind(ownerSub, ...chunk),
+      db.prepare(`DELETE FROM applications WHERE owner_sub = ? AND opportunity_id IN (${marks})`).bind(ownerSub, ...chunk),
+      db.prepare(`DELETE FROM documents WHERE owner_sub = ? AND opportunity_id IN (${marks})`).bind(ownerSub, ...chunk),
+      db.prepare(`DELETE FROM opportunities WHERE owner_sub = ? AND id IN (${marks})`).bind(ownerSub, ...chunk),
+    ])
+  }
+  return ids.length
+}
+
 /** Returns a response when the caller may not proceed, or null when it may. */
 function denied(c: Context<AppContext>): Response | null {
   const secret = c.env.INGEST_SECRET

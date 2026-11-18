@@ -171,8 +171,8 @@ field shapes. Every row below is a live request made that day.
 | --- | --- | --- | --- |
 | We Work Remotely (contract) | `weworkremotely.com/remote-jobs.rss` | Main feed, filtered by the feed's own `<type>` element (Contract / Freelance / Temporary) | 100 items, 15 contract |
 | Superteam Earn | `earn.superteam.fun/api/listings/` | Public bounties and projects with sponsor, reward token and deadline; every listing page resolved 200 | 12 open |
-| Bugcrowd programmes | `bugcrowd.com/engagements.json?page=N` | Open bounty programmes paying per accepted report; private and demo rows skipped | 24 per page, 296 total; 2 pages wired (48) |
-| Freelancer.com (existing) | `api/projects/0.1/projects/active/?limit=&offset=` | Now paged; `limit=100` and a real `offset` both work | 399 distinct projects across 4 pages; 150 per scan by default |
+| Bugcrowd programmes | `bugcrowd.com/engagements.json?page=N` | **Disabled 2026-11-18.** Open bounty programmes paying per accepted report are security work, not contract work: every row scored 16/100, the `org` field carries Bugcrowd's industry label rather than the sponsor, and no row states a publish date, a deadline or a scope. Adapter kept, source switched off, its 48 stored rows removed | 24 per page, 296 total |
+| Freelancer.com (existing) | `api/projects/0.1/projects/active/?limit=&offset=` | Paged; `limit=100` and a real `offset` both work. A short page no longer ends the scan (the API returns 99 of 100 routinely) | 4,285 active; newest 500 read per scan |
 | Braintrust (existing) | `app.usebraintrust.com/api/jobs/` | Now reads the whole public list instead of the first 60 | 136 rows |
 
 Selection rule: keyless, no login, robots/terms allow the listed path, and the gig classification comes from
