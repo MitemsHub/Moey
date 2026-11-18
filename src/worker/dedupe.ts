@@ -18,6 +18,9 @@ export interface Normalised {
   tags: string[]
   /** 'gig' only when the source declared contract work for this row. */
   work: 'gig' | null
+  /** What the scorer may read. Equal to `body` unless the adapter added a note, in
+   *  which case it holds only the source's words. */
+  scoringText: string
   contentHash: string
 }
 
@@ -74,6 +77,10 @@ export function normalise(
     compCurrency: raw.compensation?.currency ?? null,
     signal,
     work: raw.work === 'gig' ? 'gig' : null,
+    // Adapter prose is shown, never scored: a disclaimer saying this is *not* a salary
+    // otherwise trips the "salary" demand signal on a row that never offered one.
+    scoringText:
+      raw.scoringText === undefined ? body : stripHtml(raw.scoringText).slice(0, MAX_BODY),
     tags: (raw.tags ?? []).map((t) => String(t).slice(0, 40)).slice(0, 12),
     // Title + org are the identity; descriptions change on re-edit, so they are
     // excluded — otherwise the same posting would dedupe as new every scan.

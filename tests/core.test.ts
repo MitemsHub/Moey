@@ -51,6 +51,40 @@ describe('normalise', () => {
     expect(result?.body).toBe('Hello')
   })
 
+  test('adapter prose is stored for the reader but never scored', () => {
+    // Bugcrowd's own text plus our explanation, including the disclaimer that tripped
+    // the "salary" demand signal on rows that never offered a salary.
+    const row = normalise(
+      {
+        externalId: 'bb1',
+        title: 'Test platform bug bounty',
+        url: 'https://bugcrowd.test/bb1',
+        text:
+          'Test our platform. Open bounty programme on Bugcrowd in Cloud. Rewards are paid per valid report; this is not a salary or a fixed contract.',
+        scoringText: 'Test our platform',
+      },
+      defaults,
+    )
+    expect(row?.body).toContain('not a salary')
+    expect(row?.scoringText).toBe('Test our platform')
+
+    const asScored = scoreByRules(opportunity({ title: row!.title, body: row!.scoringText }), profile)
+    expect(asScored.rationale).not.toContain('salary')
+
+    // The trap this guards against: feeding the stored body straight back in rewards
+    // the word our own disclaimer supplied.
+    const asStored = scoreByRules(opportunity({ title: row!.title, body: row!.body }), profile)
+    expect(asStored.rationale).toContain('salary')
+  })
+
+  test('a row whose text is entirely the source’s keeps that text for scoring', () => {
+    const row = normalise(
+      { externalId: 'f1', title: 'React developer needed', url: 'https://feed.test/1', text: 'Build with React.' },
+      defaults,
+    )
+    expect(row?.scoringText).toBe('Build with React.')
+  })
+
   test('content hash ignores seniority words and formatting, so re-posts dedupe', () => {
     const a = normalise({ externalId: '1', title: 'Senior React Developer', url: 'https://a.test', org: 'Acme' }, defaults)
     const b = normalise({ externalId: '2', title: 'React Developer (Remote)', url: 'https://b.test', org: 'Acme' }, defaults)

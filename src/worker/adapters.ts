@@ -16,6 +16,11 @@ export interface RawOpportunity {
   /** Only when the source declares it per row: a job feed tagging one posting
    *  "Contract" is quoting the posting, not us guessing from its text. */
   work?: 'gig'
+  /** The source's own words, when `text` also carries a sentence this adapter wrote.
+   *  Scoring reads this, never our note: "this is not a salary" is our disclaimer, and
+   *  a rule that rewards the word "salary" must not be fed it. Leaving it undefined
+   *  means `text` is entirely the source's, which is the normal case. */
+  scoringText?: string
 }
 
 export interface AdapterDefaults {
@@ -962,6 +967,11 @@ const braintrust: Adapter = {
         deadline: toEpoch(job.deadline),
         compensation: min || max ? { min, max, currency: 'USD' } : null,
         tags: [engagement.replace(/_/g, '-'), payment, hours ? `${hours}h-week` : ''].filter(Boolean),
+        // The platform publishes no description, so the body above is our summary of
+        // its fields. Scoring it whole was a false positive of its own: our sentence
+        // "Engagement: freelance." tripped the "freelance" demand signal on 129 of 136
+        // rows. The skills list is the one part that is purely the platform's data.
+        scoringText: skills.join(', '),
         text: facts.join(' '),
         signal: 'explicit',
       } satisfies RawOpportunity]
@@ -1076,7 +1086,8 @@ const superteam: Adapter = {
           deadline ? `Submissions close ${new Date(deadline).toISOString().slice(0, 10)}.` : '',
           'Open call for submissions: the sponsor reviews entries and pays the winners.',
         ].filter(Boolean).join(' '),
-        tags: [kind, 'web3', 'bounty'],
+                  tags: [kind, 'web3', 'bounty'],
+        scoringText: '',
         signal: 'explicit' as const,
       } satisfies RawOpportunity]
     })
@@ -1122,6 +1133,10 @@ const bugcrowd: Adapter = {
         const programme = (engagement.productEngagementType as { label?: string } | undefined)?.label ?? 'Bounty'
         const industry = String(engagement.industryName ?? '').trim()
         const endsAt = toEpoch(engagement.endsAt)
+        // Bugcrowd's own words for this programme. Everything else in `text` below is
+        // our explanation, including the disclaimer about salary — which the rule
+        // scorer used to read as the programme offering one.
+        const tagline = String(engagement.tagline ?? '').trim()
         out.push({
           externalId: `bugcrowd:${brief.replace(/^\//, '')}`,
           title,
@@ -1132,8 +1147,9 @@ const bugcrowd: Adapter = {
           publishedAt: null,
           deadline: endsAt,
           compensation: min || max ? { min, max, currency: 'USD' } : null,
+          scoringText: tagline,
           text: [
-            String(engagement.tagline ?? '').trim(),
+            tagline,
             `Open ${programme.toLowerCase()} programme on Bugcrowd${industry ? ` in ${industry}` : ''}.`,
             min || max ? `Published reward range: $${min ?? 0}–$${max ?? 0} per accepted report.` : '',
             endsAt ? `Programme ends ${new Date(endsAt).toISOString().slice(0, 10)}.` : '',
@@ -1445,6 +1461,8 @@ const dataAnnotation: Adapter = {
         location: 'Remote',
         remote: true,
         signal: 'explicit' as const,
+        // The sitemap gives a slug and nothing else, so every sentence below is ours.
+        scoringText: '',
         text: `${title} is one of DataAnnotation's public AI-training roles. Entry is an application: a starter assessment, then an ID check. Pay is set per role and shown on the posting, which is a listing rather than an offer of work.`,
         tags: ['ai-training', 'application-gated'],
       }

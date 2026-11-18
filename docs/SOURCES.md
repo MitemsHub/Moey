@@ -225,6 +225,29 @@ The gig view includes `work_type = 'gig'` rows, the salaried view excludes them,
 the next scan of those feeds sets the work type on every row the feed still returns, because a duplicate
 whose feed positively declares contract work gets its stored work type updated.
 
+### What the rule scorer reads
+
+The scorer reads the posting and its own title, never a sentence an adapter wrote. Three
+adapters compose the body themselves: Bugcrowd adds “this is not a salary or a fixed
+contract”, Superteam adds how the sponsor pays, and DataAnnotation explains its
+application gate. Those sentences are kept for the reader, but the adapters also supply
+`scoringText` — the source's own words, which for Superteam and DataAnnotation is empty
+because the endpoints publish no description. `opportunities.scoring_text` stores that
+division (NULL when the body is entirely the source's), ingest scores against it, and a
+re-score reads it too, so a profile save cannot reintroduce the old signal.
+
+The measured false positive this fixed: every Bugcrowd row scored 16/100 with the
+rationale “explicit demand language: “salary””, on a programme paying bounties, because
+the word appeared in our disclaimer.
+
+Braintrust was the second adapter with this fault: its body is our summary of the
+platform's fields, and the sentence “Engagement: freelance.” tripped the “freelance”
+demand signal on **129 of 136 rows**. It publishes no description, so its scoring text is
+now the platform's own `main_skills` list; the employer, engagement, budget, hours,
+timezones and location stay in the body for the reader. Demand words that appear in a
+source's *title* still count — that text is the source's. OSM prospect rows are scored by their
+gap tags, not their text. Every other adapter passes the source's text through unchanged.
+
 Arbeitnow's `job_types` array mixes seniority with the contract form (`["Experienced","contract"]`,
 `["Contract"]`, `["Experienced","freelance"]`), so its contract tokens feed the same per-row work type.
 It adds no request and no row: the rows were already being stored, they were simply counted as salaried.

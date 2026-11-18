@@ -189,6 +189,9 @@ export function ensureSchema(db: D1Database): Promise<void> {
       // (a Jobicy row tagged Contract inside a salaried job feed). NULL means the
       // source said nothing, so the row follows its source's kind.
       .then(() => db.exec('ALTER TABLE opportunities ADD COLUMN work_type TEXT').catch(() => undefined))
+      // Only set when an adapter wrote part of the body itself: scoring reads this
+      // instead, so our own explanatory sentences never count as the posting's demand.
+      .then(() => db.exec('ALTER TABLE opportunities ADD COLUMN scoring_text TEXT').catch(() => undefined))
       // Application kits read these two: a GitHub login to source real projects from,
       // and free-text work history (there is no separate experience table).
       .then(() => db.exec('ALTER TABLE profiles ADD COLUMN github TEXT').catch(() => undefined))

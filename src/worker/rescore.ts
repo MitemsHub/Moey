@@ -32,7 +32,7 @@ export async function rescorePipeline(
 ): Promise<number> {
   const rows = await db
     .prepare(
-      `SELECT o.id, o.title, o.org, o.body, o.location, o.remote, o.deadline, o.published_at,
+      `SELECT o.id, o.title, o.org, o.body, o.scoring_text, o.location, o.remote, o.deadline, o.published_at,
               o.signal_type, o.comp_min, o.comp_max, o.tags_json,
               o.score, o.score_model, o.score_rationale, o.matched_json, o.missing_json, o.confidence,
               s.id AS score_row_id, s.score AS score_row_score, s.model AS score_row_model,
@@ -63,7 +63,10 @@ export async function rescorePipeline(
     const scoring: OpportunityForScoring = {
       title: String(row.title),
       org: (row.org as string) ?? null,
-      body: String(row.body ?? ''),
+      // Same rule as ingest: adapter-written explanation is never read as the
+      // posting's own demand language. Rows stored before the column existed fall
+      // back to the body, which is correct for every adapter that does not compose.
+      body: String(row.scoring_text ?? row.body ?? ''),
       location: (row.location as string) ?? null,
       remote: row.remote === null ? null : Number(row.remote) === 1,
       deadline: row.deadline === null ? null : Number(row.deadline),
