@@ -6,7 +6,9 @@ name: Discovery scan
 #
 # A schedule that runs before its secrets exist used to fail every six hours and
 # mail the owner each time. It now checks for configuration first and skips with a
-# notice, which is the truth: nothing was scanned, and nothing is broken.
+# notice, which is the truth: nothing was scanned, and nothing is broken. The same
+# holds when the host has paused the site for the day's write allowance: the runner
+# reports a notice and exits 0, because only the reset fixes that.
 on:
   schedule:
     - cron: '15 */6 * * *'

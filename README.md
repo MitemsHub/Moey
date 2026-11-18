@@ -169,7 +169,8 @@ rows a day once the app's own reads and edits are counted.
 
 A first sweep of a new source is the expensive moment. Steady-state scans mostly dedupe against rows already stored
 and cost little. If a sweep exhausts the allowance, the host pauses the site until the reset shown on the Sites
-panel, and data is kept.
+panel, and data is kept. A scheduled run that meets the pause writes a notice and exits successfully instead of
+failing, so the owner is not mailed every six hours about a wait only the reset can end.
 
 ## Hosting
 
