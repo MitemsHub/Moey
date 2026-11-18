@@ -10,20 +10,27 @@ import { relativeTime, shortDate } from '../lib/format'
 import type { OpportunityQuery, SourceKind } from '../../shared/types'
 
 /**
- * Work-type marker for a row, read from the source's kind — never from the posting.
- * Gig marketplaces read "gig", procurement notices "contract", and employer boards and
- * job feeds "job", so a salaried row is labelled as plainly as a gig row. Directory and
+ * Work-type marker for a row. The source's kind is the default, and it is overridden
+ * only by a work type the row itself carries: a job feed that tags one posting
+ * Contract/Freelance is quoting that posting, so the row reads "contract" and is
+ * counted in the gig view. Nothing here is read from a title or a description.
+ * Gig marketplaces read "gig", procurement notices "contract", employer boards and job
+ * feeds "job", so a salaried row is labelled as plainly as a gig row. Directory and
  * community rows stay unmarked: those are prospects and conversations, not offered work.
  */
-function workMarker(kind: SourceKind | null | undefined): 'gig' | 'contract' | 'job' | null {
+function workMarker(
+  kind: SourceKind | null | undefined,
+  workType: 'gig' | null | undefined,
+): 'gig' | 'contract' | 'job' | null {
+  if (workType === 'gig') return 'contract'
   if (kind === 'gig') return 'gig'
   if (kind === 'tender') return 'contract'
   if (kind === 'ats' || kind === 'feed') return 'job'
   return null
 }
 
-function WorkMarker({ kind }: { kind: SourceKind | null | undefined }) {
-  const mark = workMarker(kind)
+function WorkMarker({ kind, workType }: { kind: SourceKind | null | undefined; workType: 'gig' | null | undefined }) {
+  const mark = workMarker(kind, workType)
   if (!mark) return null
   return (
     <span
@@ -453,7 +460,7 @@ export function Opportunities() {
                           )}
                           <span aria-hidden>·</span>
                           <span className="truncate">{item.org ?? 'Organisation not stated'}</span>
-                          <WorkMarker kind={item.sourceKind} />
+                          <WorkMarker kind={item.sourceKind} workType={item.workType} />
                           {item.remote && (
                             <span className="hidden shrink-0 rounded-[2px] bg-surface-2 px-1 text-[9.5px] uppercase tracking-wide sm:inline-block">
                               remote

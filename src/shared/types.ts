@@ -78,6 +78,9 @@ export interface Opportunity {
   sourceAdapter?: string | null
   /** What the source is, so a gig board is not read as an employer posting. */
   sourceKind?: SourceKind | null
+  /** Set only when the row itself declares contract/freelance work; null when the
+   *  source states nothing about the engagement, so the row follows its source. */
+  workType?: 'gig' | null
   location: string | null
   remote: boolean | null
   excerpt: string
@@ -230,7 +233,8 @@ export interface OpportunityQuery {
   remote?: 'only'
   /** Free-text match against the posting's location field. */
   location?: string
-  /** `gig` keeps gig and contract sources; `job` keeps employer boards and job feeds. */
+  /** `gig` keeps gig and contract sources plus any row the source itself tags
+   *  contract/freelance; `job` keeps employer boards and job feeds minus those rows. */
   work?: 'gig' | 'job'
   minScore?: number
   sort?: 'recent' | 'score' | 'deadline'

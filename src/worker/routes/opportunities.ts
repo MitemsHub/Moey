@@ -62,17 +62,19 @@ opportunities.get('/', async (c) => {
     where.push('o.location LIKE ?')
     bind.push(`%${query.location.replace(/[%_]/g, '')}%`)
   }
-  // Work type comes from what the source is, never from guessing at the posting text.
-  // A tender is a contract too, so it sits with the gig marketplaces; employer boards
-  // and job feeds are salaried postings. Business-prospect directories are neither,
-  // so they only appear under "all work" rather than being mislabelled.
+  // Work type comes from what the source declares — its kind, or the engagement it
+  // tags on a single row — never from guessing at the posting text. A tender is a
+  // contract too, so it sits with the gig marketplaces. A job-feed row the feed itself
+  // calls Contract/Freelance is contract work, so it moves out of the salaried view
+  // and into the gig view instead of being counted in both. Business-prospect
+  // directories are neither, so they only appear under "all work".
   if (query.work === 'gig') {
     where.push(
-      "EXISTS (SELECT 1 FROM sources s2 WHERE s2.id = o.source_id AND s2.owner_sub = o.owner_sub AND s2.kind IN ('gig','tender'))",
+      "(o.work_type = 'gig' OR EXISTS (SELECT 1 FROM sources s2 WHERE s2.id = o.source_id AND s2.owner_sub = o.owner_sub AND s2.kind IN ('gig','tender')))",
     )
   } else if (query.work === 'job') {
     where.push(
-      "EXISTS (SELECT 1 FROM sources s2 WHERE s2.id = o.source_id AND s2.owner_sub = o.owner_sub AND s2.kind IN ('ats','feed'))",
+      "COALESCE(o.work_type, '') <> 'gig' AND EXISTS (SELECT 1 FROM sources s2 WHERE s2.id = o.source_id AND s2.owner_sub = o.owner_sub AND s2.kind IN ('ats','feed'))",
     )
   }
   if (query.minScore && !Number.isNaN(Number(query.minScore))) {
@@ -87,7 +89,7 @@ opportunities.get('/', async (c) => {
         ? 'o.deadline ASC NULLS LAST, o.first_seen_at DESC'
         : // Freshness still leads, but gig and contract rows come first so the default
           // view answers "what can I get paid for" before it lists salaried postings.
-          "CASE WHEN s.kind IN ('gig','tender') THEN 0 ELSE 1 END, o.first_seen_at DESC"
+          "CASE WHEN o.work_type = 'gig' OR s.kind IN ('gig','tender') THEN 0 ELSE 1 END, o.first_seen_at DESC"
 
   const page = Math.max(1, Number(query.page ?? 1) || 1)
   const pageSize = 25

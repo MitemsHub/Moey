@@ -211,10 +211,16 @@ title and guessing.
 | Jobspresso, Authentic Jobs | 200 | Jobspresso ignores its `job_type` filter; Authentic Jobs' feed now carries blog posts, not roles |
 | Himalayas, Jobicy, Remotive employment-type filters | 200 but unfiltered | The query parameter is ignored; filtering client-side would only re-label rows the feed already owns |
 
-### Known limitation
+### Per-row work type
 
-The job feeds already wired declare contract rows of their own — Jobicy `jobType` was 24/100 Contract,
-Remotive `job_type` 5/16 contract or freelance, Himalayas `employmentType` around 5–10 % Contractor. Those
-rows stay in the salaried view because an opportunity's work type is its **source's** kind, and those
-sources are job feeds. Re-classifying a row needs a per-row work-type column on `opportunities`, not a
-source-level flag, and is not part of this change.
+The job feeds already wired declare contract rows of their own — Jobicy `jobType` was 24/100 Contract on
+2026-11-18, Remotive `job_type` 5/16 contract or freelance, Himalayas `employmentType` Contractor on
+1/20. Each of those adapters now reads that field for the row it belongs to, and the ingest path stores
+`opportunities.work_type = 'gig'` only for the tokens the feed actually prints: contract, contractor,
+freelance, temporary. The column stays NULL otherwise, so no row becomes a gig on the strength of its
+title or description, and a full-time row in the same feed stays salaried.
+
+The gig view includes `work_type = 'gig'` rows, the salaried view excludes them, and such a row is marked
+`CONTRACT` rather than `JOB`. Rows stored before the column existed are not rewritten by the migration;
+the next scan of those feeds sets the work type on every row the feed still returns, because a duplicate
+whose feed positively declares contract work gets its stored work type updated.

@@ -13,6 +13,9 @@ export interface RawOpportunity {
   compensation?: { min?: number; max?: number; currency?: string } | null
   signal?: SignalType
   tags?: string[]
+  /** Only when the source declares it per row: a job feed tagging one posting
+   *  "Contract" is quoting the posting, not us guessing from its text. */
+  work?: 'gig'
 }
 
 export interface AdapterDefaults {
@@ -120,6 +123,23 @@ export function toEpoch(value: unknown): number | null {
   const dateWithOffset = /^(\d{4}-\d{2}-\d{2})([+-]\d{2}:\d{2})$/.exec(text)
   const parsed = Date.parse(dateWithOffset ? `${dateWithOffset[1]}T00:00:00${dateWithOffset[2]}` : text)
   return Number.isNaN(parsed) ? null : parsed
+}
+
+/**
+ * Reads an employment type the source publishes for a single row and keeps only the
+ * one thing this engine acts on: contract work. Feeds spell it "Contract", "contract",
+ * "Contractor" or "Freelance"; everything else (full-time, part-time, intern) returns
+ * undefined rather than being reinterpreted, so a row is never called a gig on the
+ * strength of its title or description.
+ */
+export function declaredWork(...values: unknown[]): 'gig' | undefined {
+  for (const value of values) {
+    const entries = Array.isArray(value) ? value : [value]
+    for (const entry of entries) {
+      if (/^(contract|contractor|freelance|temporary|temp)$/i.test(String(entry ?? '').trim())) return 'gig'
+    }
+  }
+  return undefined
 }
 
 export function isRemote(text: string): boolean {
@@ -307,6 +327,7 @@ const jobicy: Adapter = {
         (job.jobDescription as string) || (job.jobExcerpt as string) || '',
       ),
       tags: Array.isArray(job.jobIndustry) ? job.jobIndustry.map(String) : undefined,
+      work: declaredWork(job.jobType),
     }))
   },
 }
@@ -569,6 +590,7 @@ const remotive: Adapter = {
         publishedAt: toEpoch(job.publication_date),
         text: stripHtml(job.description as string),
         tags: Array.isArray(job.tags) ? job.tags.map(String) : undefined,
+        work: declaredWork(job.job_type),
       } satisfies RawOpportunity]
     })
   },
@@ -640,6 +662,7 @@ const himalayas: Adapter = {
         remote: true,
         publishedAt: toEpoch(job.pubDate),
         text: stripHtml((job.description as string) ?? ''),
+        work: declaredWork(job.employmentType),
       } satisfies RawOpportunity]
     })
   },

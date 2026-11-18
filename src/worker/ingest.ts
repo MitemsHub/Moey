@@ -78,13 +78,25 @@ export async function ingest(
 
   const existing = await db
     .prepare(
-      `SELECT id, title, org, content_hash, external_id FROM opportunities
+      `SELECT id, title, org, content_hash, external_id, source_id, work_type FROM opportunities
        WHERE owner_sub = ? AND (source_id = ? OR first_seen_at > ?)`,
     )
     .bind(ownerSub, source.id, Date.now() - 45 * 86_400_000)
-    .all<{ id: string; title: string; org: string | null; content_hash: string; external_id: string | null }>()
+    .all<{
+      id: string
+      title: string
+      org: string | null
+      content_hash: string
+      external_id: string | null
+      source_id: string | null
+      work_type: string | null
+    }>()
   const known = existing.results ?? []
-  const byExternal = new Set(known.map((k) => k.external_id).filter(Boolean) as string[])
+  const byExternal = new Map(
+    known
+      .filter((k): k is typeof k & { external_id: string } => Boolean(k.external_id))
+      .map((k) => [k.external_id, { id: k.id, sourceId: k.source_id, workType: k.work_type }] as const),
+  )
   const byHash = new Set(known.map((k) => k.content_hash))
   const byTitleOrg = known.map((k) => ({ id: k.id, title: k.title, org: k.org ?? '' }))
 
@@ -105,7 +117,19 @@ export async function ingest(
     }
 
     // Pass 1: exact source identity.
-    if (n.externalId && byExternal.has(n.externalId)) {
+    const already = n.externalId ? byExternal.get(n.externalId) : undefined
+    if (already) {
+      // A source can start declaring a row's engagement after we stored it (the work
+      // type was added later). Re-fetching is how those rows learn it. Only a positive
+      // declaration is written, and only onto the source's own rows, so an absent
+      // field never strips a fact and nothing is inferred from the posting text.
+      if (already.sourceId === source.id && n.work === 'gig' && already.workType !== 'gig') {
+        statements.push(
+          db
+            .prepare(`UPDATE opportunities SET work_type = ? WHERE id = ? AND owner_sub = ? AND source_id = ?`)
+            .bind(n.work, already.id, ownerSub, source.id),
+        )
+      }
       counts.duplicates++
       continue
     }
@@ -152,15 +176,16 @@ export async function ingest(
           `INSERT INTO opportunities
             (id, owner_sub, pipeline, signal_type, title, org, url, source_id, external_id, location, remote,
              body, published_at, deadline, comp_min, comp_max, comp_currency, status, content_hash, confidence,
-             score, score_model, score_rationale, matched_json, missing_json, first_seen_at, last_seen_at, tags_json)
-           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?,?,?,?,?,?)`,
+             score, score_model, score_rationale, matched_json, missing_json, first_seen_at, last_seen_at, tags_json,
+             work_type)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'new',?,?,?,?,?,?,?,?,?,?,?)`,
         )
         .bind(
           oppId, ownerSub, pipeline, n.signal, n.title, n.org, n.url, source.id, n.externalId, n.location,
           n.remote === null ? null : n.remote ? 1 : 0, n.body, n.publishedAt, n.deadline, n.compMin, n.compMax,
           n.compCurrency, n.contentHash, result.confidence, result.score, result.model, result.rationale,
           JSON.stringify(result.matched), JSON.stringify(result.missing), stamp, stamp,
-          JSON.stringify(n.tags ?? []),
+          JSON.stringify(n.tags ?? []), n.work,
         ),
     )
     for (const skill of detected.slice(0, 12)) {
@@ -185,7 +210,7 @@ export async function ingest(
         ),
     )
 
-    byExternal.add(n.externalId)
+    byExternal.set(n.externalId, { id: oppId, sourceId: source.id, workType: n.work })
     byHash.add(n.contentHash)
     byTitleOrg.push({ id: oppId, title: n.title, org: n.org ?? '' })
     counts.inserted++

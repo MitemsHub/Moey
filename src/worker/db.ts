@@ -185,6 +185,10 @@ export function ensureSchema(db: D1Database): Promise<void> {
       // a failed statement would poison the batch, so it runs separately and its
       // "duplicate column" error is expected on every boot after the first.
       .then(() => db.exec('ALTER TABLE opportunities ADD COLUMN tags_json TEXT').catch(() => undefined))
+      // A per-row work type, set only when a feed declares the engagement itself
+      // (a Jobicy row tagged Contract inside a salaried job feed). NULL means the
+      // source said nothing, so the row follows its source's kind.
+      .then(() => db.exec('ALTER TABLE opportunities ADD COLUMN work_type TEXT').catch(() => undefined))
       // Application kits read these two: a GitHub login to source real projects from,
       // and free-text work history (there is no separate experience table).
       .then(() => db.exec('ALTER TABLE profiles ADD COLUMN github TEXT').catch(() => undefined))
@@ -281,6 +285,7 @@ export function mapOpportunity(r: Row) {
     sourceLabel: str(r.source_label),
     sourceAdapter: str(r.source_adapter),
     sourceKind: str(r.source_kind) as 'ats' | 'tender' | 'feed' | 'community' | 'gig' | 'directory' | 'manual' | null,
+    workType: (str(r.work_type) as 'gig' | null) ?? null,
     location: str(r.location),
     remote: bool(r.remote),
     excerpt: (r.excerpt as string) ?? '',

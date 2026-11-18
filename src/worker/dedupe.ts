@@ -16,6 +16,8 @@ export interface Normalised {
   compCurrency: string | null
   signal: 'explicit' | 'emerging'
   tags: string[]
+  /** 'gig' only when the source declared contract work for this row. */
+  work: 'gig' | null
   contentHash: string
 }
 
@@ -71,6 +73,7 @@ export function normalise(
     compMax: raw.compensation?.max ?? null,
     compCurrency: raw.compensation?.currency ?? null,
     signal,
+    work: raw.work === 'gig' ? 'gig' : null,
     tags: (raw.tags ?? []).map((t) => String(t).slice(0, 40)).slice(0, 12),
     // Title + org are the identity; descriptions change on re-edit, so they are
     // excluded — otherwise the same posting would dedupe as new every scan.
